@@ -712,45 +712,302 @@ class RaceTrackerApp:
         self.export_button.pack(side=tk.LEFT)
 
     def export_to_html(self):
-        """Exporter les données en HTML avec une meilleure organisation des fichiers"""
+        """Export complet des données"""
         try:
-            # Créer un dossier pour les exports s'il n'existe pas
-            export_dir = "exports"
-            if not os.path.exists(export_dir):
-                os.makedirs(export_dir)
-
-            # Timestamp pour le nom des fichiers
+            # Timestamp pour le nom du dossier principal
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            export_dir = f"export{timestamp}"
 
-            # Créer le dossier des coureurs pour cette export
-            runners_dir = os.path.join(export_dir, f"coureurs_{timestamp}")
-            os.makedirs(runners_dir)
+            # Créer les dossiers
+            os.makedirs(export_dir)
+            os.makedirs(os.path.join(export_dir, "coureurs"))
+            os.makedirs(os.path.join(export_dir, "analyses"))
 
-            # Exporter le tableau principal dans le dossier principal
-            main_table_html = self.create_main_table_html(timestamp)  # Passer le timestamp à la fonction
-            main_file = os.path.join(export_dir, f"tableau_principal_{timestamp}.html")
-            with open(main_file, "w", encoding="utf-8") as f:
+            # Exporter le tableau principal (index.html)
+            main_table_html = self.create_main_table_html(timestamp)
+            with open(os.path.join(export_dir, "index.html"), "w", encoding="utf-8") as f:
                 f.write(main_table_html)
 
-            # Exporter les détails des coureurs dans le sous-dossier
+            # Exporter les détails des coureurs - Ajout du timestamp ici
             for bib in self.scraper.all_data:
-                runner_html = self.create_runner_table_html(bib, timestamp)  # Passer le timestamp à la fonction
-                if runner_html:
-                    runner_file = os.path.join(runners_dir, f"coureur_{bib}.html")
+                runner_html = self.create_runner_table_html(bib, timestamp)  # Ajout du timestamp ici
+                if runner_html:  # Vérifier si le HTML a été généré
+                    runner_file = os.path.join(export_dir, "coureurs", f"coureur_{bib}.html")
                     with open(runner_file, "w", encoding="utf-8") as f:
                         f.write(runner_html)
 
-            # Ouvrir le tableau principal dans le navigateur
-            webbrowser.open(f"file://{os.path.abspath(main_file)}")
+            # Créer une instance temporaire de TopAnalysisWindow pour l'export des analyses
+            top_analysis = TopAnalysisWindow(self.root, self.scraper, list(self.scraper.all_data.keys()))
+
+            # Récupérer la liste des courses
+            courses = ["Toutes les courses"] + sorted(list(set(
+                data['infos']['race_name']
+                for bib in self.scraper.all_data.keys()
+                for data in [self.scraper.all_data[str(bib)]]
+            )))
+
+            # Créer le dossier analyses
+            analyses_dir = os.path.join(export_dir, "analyses")
+
+            # Exporter les analyses pour chaque course
+            for course in courses:
+                # Progression
+                top_analysis.export_progression_analysis(analyses_dir, course)
+                # Dénivelés
+                top_analysis.export_elevation_analysis(analyses_dir, course)
+                # Vitesses
+                top_analysis.export_speed_analysis(analyses_dir, course)
+
+            # Exporter l'analyse des sections
+            top_analysis.export_section_analysis(analyses_dir)
+
+            # Créer l'index des analyses
+            index_html = top_analysis.create_analyses_index_html(courses)
+            with open(os.path.join(analyses_dir, "index.html"), "w", encoding="utf-8") as f:
+                f.write(index_html)
+
+            # Fermer la fenêtre temporaire
+            top_analysis.window.destroy()
+
+            # Ouvrir le fichier index dans le navigateur
+            webbrowser.open(f"file://{os.path.abspath(os.path.join(export_dir, 'index.html'))}")
+
             messagebox.showinfo(
                 "Export réussi",
-                f"Les fichiers ont été exportés :\n"
-                f"- Tableau principal : {os.path.basename(main_file)}\n"
-                f"- Détails des coureurs : dossier {os.path.basename(runners_dir)}"
+                f"Les fichiers ont été exportés dans le dossier:\n{export_dir}"
             )
 
         except Exception as e:
             messagebox.showerror("Erreur", f"Erreur lors de l'export: {str(e)}")
+            traceback.print_exc()
+
+    def export_top_analyses(self, export_dir):
+        """Exporter toutes les analyses TOP"""
+        try:
+            analyses_dir = os.path.join(export_dir, "analyses")
+            os.makedirs(analyses_dir, exist_ok=True)
+
+            # Créer une instance de TopAnalysisWindow temporaire pour accéder aux données
+            top_analysis = TopAnalysisWindow(self.root, self.scraper, [bib for bib in self.scraper.all_data.keys()])
+
+            # Récupérer la liste des courses disponibles
+            courses = ["Toutes les courses"] + sorted(list(set(
+                data['infos']['race_name']
+                for bib in self.scraper.all_data.keys()
+                for data in [self.scraper.all_data[str(bib)]]
+            )))
+
+            # Exporter les analyses pour chaque course
+            for course in courses:
+                # Mettre à jour la sélection de course
+                top_analysis.race_selector.set(course)
+
+                # 1. Progression
+                # Progression globale
+                data = top_analysis.get_progression_global_data()
+                html = top_analysis.create_analysis_table_html(
+                    "Progression globale",
+                    ["Position", "Dossard", "Nom", "Course", "Pos. départ", "Pos. finale", "Progression"],
+                    data,
+                    course
+                )
+                with open(os.path.join(analyses_dir,
+                                       f"progression_globale{'_' + course.lower().replace(' ', '_') if course != 'Toutes les courses' else ''}.html"),
+                          "w", encoding="utf-8") as f:
+                    f.write(html)
+
+                # Progression sections
+                data = top_analysis.get_progression_sections_data()
+                html = top_analysis.create_analysis_table_html(
+                    "Progression entre points",
+                    ["Position", "Dossard", "Nom", "Course", "Section", "Progression", "Classements"],
+                    data,
+                    course
+                )
+                with open(os.path.join(analyses_dir,
+                                       f"progression_sections{'_' + course.lower().replace(' ', '_') if course != 'Toutes les courses' else ''}.html"),
+                          "w", encoding="utf-8") as f:
+                    f.write(html)
+
+                # 2. Dénivelés
+                # Grimpeurs
+                data = top_analysis.get_climbers_data()
+                html = top_analysis.create_analysis_table_html(
+                    "Top Grimpeurs",
+                    ["Position", "Dossard", "Nom", "Course", "D+ total", "Temps", "Vitesse", "Pente moy.", "Tendance"],
+                    data,
+                    course
+                )
+                with open(os.path.join(analyses_dir,
+                                       f"grimpeurs{'_' + course.lower().replace(' ', '_') if course != 'Toutes les courses' else ''}.html"),
+                          "w", encoding="utf-8") as f:
+                    f.write(html)
+
+                # Descendeurs
+                data = top_analysis.get_descenders_data()
+                html = top_analysis.create_analysis_table_html(
+                    "Top Descendeurs",
+                    ["Position", "Dossard", "Nom", "Course", "D- total", "Temps", "Vitesse", "Pente moy.", "Tendance"],
+                    data,
+                    course
+                )
+                with open(os.path.join(analyses_dir,
+                                       f"descendeurs{'_' + course.lower().replace(' ', '_') if course != 'Toutes les courses' else ''}.html"),
+                          "w", encoding="utf-8") as f:
+                    f.write(html)
+
+                # 3. Vitesses
+                # Vitesse moyenne
+                data = top_analysis.get_speed_avg_data()
+                html = top_analysis.create_analysis_table_html(
+                    "Vitesse moyenne",
+                    ["Position", "Dossard", "Nom", "Course", "Vitesse moyenne"],
+                    data,
+                    course
+                )
+                with open(os.path.join(analyses_dir,
+                                       f"vitesse_moyenne{'_' + course.lower().replace(' ', '_') if course != 'Toutes les courses' else ''}.html"),
+                          "w", encoding="utf-8") as f:
+                    f.write(html)
+
+                # Vitesse effort
+                data = top_analysis.get_speed_effort_data()
+                html = top_analysis.create_analysis_table_html(
+                    "Vitesse effort",
+                    ["Position", "Dossard", "Nom", "Course", "Vitesse effort"],
+                    data,
+                    course
+                )
+                with open(os.path.join(analyses_dir,
+                                       f"vitesse_effort{'_' + course.lower().replace(' ', '_') if course != 'Toutes les courses' else ''}.html"),
+                          "w", encoding="utf-8") as f:
+                    f.write(html)
+
+                # Vitesse sections
+                data = top_analysis.get_speed_sections_data()
+                html = top_analysis.create_analysis_table_html(
+                    "Vitesse par section",
+                    ["Position", "Dossard", "Nom", "Course", "Section", "Distance", "Vitesse"],
+                    data,
+                    course
+                )
+                with open(os.path.join(analyses_dir,
+                                       f"vitesse_sections{'_' + course.lower().replace(' ', '_') if course != 'Toutes les courses' else ''}.html"),
+                          "w", encoding="utf-8") as f:
+                    f.write(html)
+
+            # Créer la page d'index des analyses
+            index_html = self.create_analyses_index_html(courses)
+            with open(os.path.join(analyses_dir, "index.html"), "w", encoding="utf-8") as f:
+                f.write(index_html)
+
+            # Ajouter le lien vers les analyses dans le menu principal
+            self.add_analyses_link_to_main_menu(export_dir)
+
+            # Ajouter l'export des sections
+            html = top_analysis.create_section_analysis_html()
+            with open(os.path.join(analyses_dir, "analyse_sections.html"), "w", encoding="utf-8") as f:
+                f.write(html)
+
+        except Exception as e:
+            print(f"Erreur lors de l'export des analyses TOP: {str(e)}")
+            traceback.print_exc()
+        finally:
+            if 'top_analysis' in locals():
+                if hasattr(top_analysis, 'window'):
+                    top_analysis.window.destroy()
+
+    def create_analyses_index_html(self, courses):
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Analyses TOP</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                .analysis-section {
+                    margin-bottom: 30px;
+                }
+                .analysis-links {
+                    list-style: none;
+                    padding-left: 20px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container mt-4">
+                <h1>Analyses TOP</h1>
+                <div class="mb-4">
+                    <a href="../index.html" class="btn btn-secondary">← Retour au tableau des coureurs</a>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="analysis-section">
+                            <h3>Progression</h3>
+                            <ul class="analysis-links">
+                                <li><a href="progression_globale.html">Progression globale</a></li>
+                                <li><a href="progression_sections.html">Progression entre points</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="analysis-section">
+                            <h3>Dénivelés</h3>
+                            <ul class="analysis-links">
+                                <li><a href="grimpeurs.html">Top Grimpeurs</a></li>
+                                <li><a href="descendeurs.html">Top Descendeurs</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="analysis-section">
+                            <h3>Vitesses</h3>
+                            <ul class="analysis-links">
+                                <li><a href="vitesse_moyenne.html">Vitesse moyenne</a></li>
+                                <li><a href="vitesse_effort.html">Vitesse effort</a></li>
+                                <li><a href="vitesse_sections.html">Vitesse par section</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="analysis-section">
+                            <h3>Sections</h3>
+                            <ul class="analysis-links">
+                                <li><a href="analyse_sections.html">Analyse par section</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return html
+
+    def add_analyses_link_to_main_menu(self, export_dir):
+        """Ajouter un lien vers les analyses dans le menu principal"""
+        with open(os.path.join(export_dir, "index.html"), "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Ajouter le lien vers les analyses avant la fermeture du container
+        analyses_link = """
+            <div class="row mt-3">
+                <div class="col">
+                    <a href="analyses/index.html" class="btn btn-primary">Voir les analyses TOP →</a>
+                </div>
+            </div>
+        """
+        content = content.replace('</div>\n    </body>', f'{analyses_link}\n        </div>\n    </body>')
+
+        with open(os.path.join(export_dir, "index.html"), "w", encoding="utf-8") as f:
+            f.write(content)
 
     def create_main_table_html(self, timestamp):
         """Créer le HTML pour le tableau principal avec tri et liens vers les détails"""
@@ -785,22 +1042,23 @@ class RaceTrackerApp:
                         <p class="text-muted">Cliquez sur un dossard pour voir les détails du coureur</p>
                     </div>
                 </div>
+                <div class="row mb-3">
+                    <div class="col">
+                        <a href="analyses/index.html" class="btn btn-primary">Voir les Analyses TOP →</a>
+                    </div>
+                </div>
                 <table id="mainTable" class="table table-striped table-bordered">
                     <thead>
                         <tr>
-                            <th>Course</th>
-                            <th>Dossard</th>
-                            <th>Nom</th>
-                            <th>Catégorie</th>
-                            <th>Class. Général</th>
-                            <th>Class. Sexe</th>
-                            <th>Class. Catégorie</th>
-                            <th>Vitesse moy.</th>
-                            <th>État</th>
-                            <th>Dernier Point</th>
-                            <th>Temps</th>
-                            <th>D+ Total</th>
-                            <th>D- Total</th>
+        """
+
+        # Ajouter les en-têtes de colonnes
+        for col in ["Course", "Dossard", "Nom", "Catégorie", "Class. Général", "Class. Sexe",
+                    "Class. Catégorie", "Vitesse moy.", "État", "Dernier Point", "Temps",
+                    "D+ Total", "D- Total"]:
+            html += f"<th>{col}</th>"
+
+        html += """
                         </tr>
                     </thead>
                     <tbody>
@@ -809,13 +1067,14 @@ class RaceTrackerApp:
         # Ajouter les données avec liens vers les détails des coureurs
         for item in self.tree.get_children():
             values = self.tree.item(item)["values"]
-            html += "<tr>"
-            for i, value in enumerate(values):
-                if i == 1:  # Colonne du dossard
-                    html += f'<td><a href="coureurs_{timestamp}/coureur_{value}.html" class="runner-link" target="_blank">{value}</a></td>'
-                else:
-                    html += f"<td>{value}</td>"
-            html += "</tr>"
+            if values:
+                html += "<tr>"
+                for i, value in enumerate(values):
+                    if i == 1:  # Colonne du dossard
+                        html += f'<td><a href="coureurs/coureur_{value}.html" class="runner-link" target="_blank">{value}</a></td>'
+                    else:
+                        html += f"<td>{value}</td>"
+                html += "</tr>"
 
         html += """
                     </tbody>
@@ -828,7 +1087,7 @@ class RaceTrackerApp:
                         "language": {
                             "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
                         },
-                        "order": [[1, "asc"]]  // Tri par défaut sur le dossard
+                        "order": [[1, "asc"]]
                     });
                 });
             </script>
@@ -853,26 +1112,24 @@ class RaceTrackerApp:
             if len(runner_data['checkpoints']) > 0:
                 print(f"Structure d'un checkpoint: {runner_data['checkpoints'][0].keys()}")
 
-        html_start = f"""
+        html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
             <title>Détails coureur {bib}</title>
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
             <style>
-                .positive-evolution {{ color: green; }}
-                .negative-evolution {{ color: red; }}
-                .neutral-evolution {{ color: gray; }}
+                .positive-evolution {{ color: #28a745; }}
+                .negative-evolution {{ color: #dc3545; }}
+                .neutral-evolution {{ color: #6c757d; }}
             </style>
         </head>
         <body>
             <div class="container-fluid mt-3">
                 <div class="row mb-3">
                     <div class="col">
-                        <a href="../tableau_principal_{timestamp}.html" class="btn btn-secondary mb-3">
-                            ← Retour au tableau principal
-                        </a>
+                        <a href="../index.html" class="btn btn-secondary mb-3">← Retour au tableau principal</a>
                         <h3>Détails du coureur {bib}</h3>
                     </div>
                 </div>
@@ -915,8 +1172,9 @@ class RaceTrackerApp:
                 </div>
         """
 
-        # Ajout de la section des points de passage uniquement s'ils existent
-        html_checkpoints = """
+        # Initialiser html_checkpoints ici
+        if 'checkpoints' in runner_data and runner_data['checkpoints']:
+            html_checkpoints = """
                 <div class="row">
                     <div class="col">
                         <h4>Points de passage</h4>
@@ -936,12 +1194,9 @@ class RaceTrackerApp:
                                 </tr>
                             </thead>
                             <tbody>
-        """
+            """
 
-        # Vérifier si nous avons des points de passage
-        if 'checkpoints' in runner_data and runner_data['checkpoints']:
             for cp in runner_data['checkpoints']:
-                # Formatage de l'évolution avec gestion des cas nuls
                 evolution = cp.get('rank_evolution')
                 if evolution is not None:
                     if evolution > 0:
@@ -953,7 +1208,6 @@ class RaceTrackerApp:
                 else:
                     evolution_text = '-'
 
-                # Formatage des autres valeurs avec gestion des cas nuls
                 kilometer = f"{cp.get('kilometer', 0):.1f}" if cp.get('kilometer') is not None else "-"
                 elevation_gain = f"{cp.get('elevation_gain', 0)}m" if cp.get('elevation_gain') is not None else "-"
                 elevation_loss = f"{cp.get('elevation_loss', 0)}m" if cp.get('elevation_loss') is not None else "-"
@@ -997,11 +1251,9 @@ class RaceTrackerApp:
         </html>
         """
 
-        full_html = html_start + html_checkpoints + html_end
+        full_html = html + html_checkpoints + html_end
         print(f"HTML généré pour le coureur {bib}")
         return full_html
-
-
 
     def create_widgets(self):
         self.main_frame = ctk.CTkFrame(self.root)
@@ -1476,8 +1728,7 @@ class TopAnalysisWindow:
         self.section_frame = ctk.CTkFrame(self.filter_frame)
         self.section_selector = None
 
-        # Après la création du section_selector
-        self.create_export_button()
+
 
         # Créer les onglets
         self.tabview = ctk.CTkTabview(self.main_frame)
@@ -1497,6 +1748,132 @@ class TopAnalysisWindow:
 
         # Initialiser l'affichage
         self.update_displays()
+
+    def preload_section_data(self, selected_race):
+        """Précharger les données des sections pour une course"""
+        try:
+            # Mettre à jour la liste des sections disponibles
+            self.update_section_selector(selected_race)
+
+            section_data = {}
+
+            # Pour chaque section trouvée
+            for section_name in self.sections_info.keys():
+                print(f"Traitement de la section: {section_name}")  # Debug
+
+                # Simuler la sélection de la section
+                if self.section_selector:
+                    self.section_selector.set(section_name)
+
+                # Mettre à jour l'affichage des performances pour cette section
+                self.update_section_display()
+
+                # Récupérer les données avec filtrage par course
+                temps_data = []
+                vitesse_data = []
+                progression_data = []
+
+                for bib in self.bibs:
+                    if str(bib) in self.scraper.all_data:
+                        data = self.scraper.all_data[str(bib)]
+                        if selected_race == "Toutes les courses" or data['infos']['race_name'] == selected_race:
+                            checkpoints = data['checkpoints']
+
+                            # Trouver la section dans les points de passage
+                            for i in range(len(checkpoints) - 1):
+                                current_section = f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}"
+                                if current_section == section_name:
+                                    try:
+                                        # Calculer temps
+                                        time1 = datetime.strptime(checkpoints[i]['race_time'], "%H:%M:%S")
+                                        time2 = datetime.strptime(checkpoints[i + 1]['race_time'], "%H:%M:%S")
+                                        section_time = str(time2 - time1).split('.')[0]
+
+                                        # Calculer vitesse
+                                        hours = (time2 - time1).total_seconds() / 3600
+                                        distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+                                        speed = distance / hours if hours > 0 else 0
+
+                                        # Calculer vitesse effort
+                                        d_plus = checkpoints[i]['elevation_gain'] or 0
+                                        d_minus = checkpoints[i]['elevation_loss'] or 0
+                                        effort_distance = distance + (d_plus / 1000 * 10) + (d_minus / 1000 * 2)
+                                        effort_speed = effort_distance / hours if hours > 0 else 0
+
+                                        # Calculer progression
+                                        rank1 = int(checkpoints[i]['rank']) if checkpoints[i]['rank'] else 0
+                                        rank2 = int(checkpoints[i + 1]['rank']) if checkpoints[i + 1]['rank'] else 0
+                                        progression = rank1 - rank2 if rank1 and rank2 else 0
+
+                                        # Ajouter aux listes de données
+                                        temps_data.append([
+                                            len(temps_data) + 1,  # Position
+                                            bib,  # Dossard
+                                            data['infos']['name'],  # Nom
+                                            data['infos']['race_name'],  # Course
+                                            section_time,  # Temps
+                                            f"{speed:.1f} km/h"  # Vitesse
+                                        ])
+
+                                        vitesse_data.append([
+                                            len(vitesse_data) + 1,
+                                            bib,
+                                            data['infos']['name'],
+                                            data['infos']['race_name'],
+                                            f"{speed:.1f} km/h",
+                                            f"{effort_speed:.1f} km/h"
+                                        ])
+
+                                        progression_data.append([
+                                            len(progression_data) + 1,
+                                            bib,
+                                            data['infos']['name'],
+                                            data['infos']['race_name'],
+                                            progression,
+                                            f"{rank1} → {rank2}"
+                                        ])
+
+                                    except Exception as e:
+                                        print(
+                                            f"Erreur lors du traitement des données du coureur {bib} pour la section {section_name}: {e}")
+                                    break
+
+                # Trier les données
+                temps_data.sort(key=lambda x: x[4])  # Tri par temps
+                vitesse_data.sort(key=lambda x: float(x[4].split()[0]), reverse=True)  # Tri par vitesse
+                progression_data.sort(key=lambda x: x[4], reverse=True)  # Tri par progression
+
+                # Mettre à jour les positions après le tri
+                for i, row in enumerate(temps_data, 1):
+                    row[0] = i
+                for i, row in enumerate(vitesse_data, 1):
+                    row[0] = i
+                for i, row in enumerate(progression_data, 1):
+                    row[0] = i
+
+                # Limiter aux 20 meilleurs
+                temps_data = temps_data[:20]
+                vitesse_data = vitesse_data[:20]
+                progression_data = progression_data[:20]
+
+                section_data[section_name] = {
+                    'temps': temps_data,
+                    'vitesse': vitesse_data,
+                    'progression': progression_data,
+                    'info': self.sections_info[section_name]
+                }
+
+                print(f"Données collectées pour la section {section_name}:")  # Debug
+                print(f"Temps: {len(temps_data)} entrées")
+                print(f"Vitesse: {len(vitesse_data)} entrées")
+                print(f"Progression: {len(progression_data)} entrées")
+
+            return section_data
+
+        except Exception as e:
+            print(f"Erreur dans preload_section_data: {str(e)}")
+            traceback.print_exc()
+            return {}
 
     def get_unique_races(self):
         races = set()
@@ -1533,6 +1910,121 @@ class TopAnalysisWindow:
 
         self.descenders_scroll = ctk.CTkScrollableFrame(self.elevation_descenders)
         self.descenders_scroll.pack(fill=tk.BOTH, expand=True)
+
+    def create_analyses_index_html(self, courses):
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Analyses TOP</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                .category-section {
+                    margin-bottom: 2rem;
+                    padding: 1rem;
+                    background-color: #f8f9fa;
+                    border-radius: 8px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container py-5">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1>Analyses TOP</h1>
+                    <select id="courseSelect" class="form-select" style="width: auto;">
+        """
+
+        # Ajouter les options de course
+        for course in courses:
+            html += f'<option value="{course}">{course}</option>'
+
+        html += """
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <a href="../index.html" class="btn btn-secondary">← Retour au tableau des coureurs</a>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="category-section">
+                            <h3>Progression</h3>
+                            <ul class="analysis-links"></ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="category-section">
+                            <h3>Dénivelés</h3>
+                            <ul class="analysis-links"></ul>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="category-section">
+                            <h3>Vitesses</h3>
+                            <ul class="analysis-links"></ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="category-section">
+                            <h3>Sections</h3>
+                            <ul class="analysis-links">
+                                <li><a href="analyse_sections.html">Analyse par sections</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+            document.getElementById('courseSelect').addEventListener('change', function() {
+                const course = this.value;
+                const suffix = course === 'Toutes les courses' ? '' : '_' + course.toLowerCase().replace(/ /g, '_');
+                updateLinks(suffix);
+            });
+
+            function updateLinks(suffix) {
+                const links = {
+                    'Progression': {
+                        'Progression globale': `progression_globale${suffix}.html`,
+                        'Progression entre points': `progression_sections${suffix}.html`
+                    },
+                    'Dénivelés': {
+                        'Top Grimpeurs': `grimpeurs${suffix}.html`,
+                        'Top Descendeurs': `descendeurs${suffix}.html`
+                    },
+                    'Vitesses': {
+                        'Vitesse moyenne': `vitesse_moyenne${suffix}.html`,
+                        'Vitesse effort': `vitesse_effort${suffix}.html`,
+                        'Vitesse par section': `vitesse_sections${suffix}.html`
+                    }
+                };
+
+                document.querySelectorAll('.category-section').forEach(section => {
+                    const title = section.querySelector('h3').textContent;
+                    if (title in links) {  // Ne mettre à jour que les sections avec des liens dynamiques
+                        const ul = section.querySelector('ul');
+                        ul.innerHTML = '';
+
+                        Object.entries(links[title]).forEach(([name, url]) => {
+                            ul.innerHTML += `<li><a href="${url}">${name}</a></li>`;
+                        });
+                    }
+                });
+            }
+
+            // Initialize links
+            updateLinks('');
+            </script>
+        </body>
+        </html>
+        """
+        return html
 
     def create_speed_subtabs(self):
         self.speed_tabs = ctk.CTkTabview(self.tab_speed)
@@ -2612,31 +3104,6 @@ class TopAnalysisWindow:
             print(f"Erreur lors du calcul de différence de temps: {e}")
             return None
 
-    def create_export_button(self):
-        """Créer le bouton d'export avec une image"""
-        export_frame = ctk.CTkFrame(self.filter_frame)
-        export_frame.pack(side=tk.RIGHT, padx=20)
-
-        try:
-            image = Image.open("dl.png")
-            image = image.resize((20, 20))
-            photo = ctk.CTkImage(light_image=image, dark_image=image, size=(20, 20))
-            self.export_button = ctk.CTkButton(
-                export_frame,
-                text="Exporter Analyses",
-                image=photo,
-                compound="left",
-                command=self.export_analyses
-            )
-        except Exception as e:
-            print(f"Erreur lors du chargement de l'image: {e}")
-            self.export_button = ctk.CTkButton(
-                export_frame,
-                text="Exporter Analyses",
-                command=self.export_analyses
-            )
-
-        self.export_button.pack(side=tk.LEFT)
 
     def export_analyses(self):
         """Exporter toutes les analyses en HTML"""
@@ -2653,17 +3120,41 @@ class TopAnalysisWindow:
             analysis_dir = os.path.join(export_dir, f"analyses_{timestamp}")
             os.makedirs(analysis_dir)
 
-            # Générer le fichier principal avec les liens vers toutes les analyses
-            main_html = self.create_main_analysis_html(timestamp)
+            # Obtenir la liste des courses et la course sélectionnée
+            selected_race = self.race_selector.get()
+            courses = ["Toutes les courses"] + sorted(list(set(
+                data['infos']['race_name']
+                for bib in self.bibs
+                if str(bib) in self.scraper.all_data
+                for data in [self.scraper.all_data[str(bib)]]
+            )))
+
+            # Pour chaque course, créer un sous-dossier et générer les analyses
+            for race in courses:
+                # Créer un sous-dossier pour la course
+                race_dir = os.path.join(analysis_dir, race.lower().replace(" ", "_"))
+                os.makedirs(race_dir)
+
+                # Sauvegarder la sélection actuelle
+                current_selection = self.race_selector.get()
+
+                # Changer temporairement la sélection pour la course en cours
+                self.race_selector.set(race)
+
+                # Générer les pages d'analyses pour cette course
+                self.export_progression_analysis(race_dir)
+                self.export_elevation_analysis(race_dir)
+                self.export_speed_analysis(race_dir)
+                self.export_section_analysis(race_dir)
+
+                # Restaurer la sélection originale
+                self.race_selector.set(current_selection)
+
+            # Générer le fichier index principal avec les liens vers toutes les analyses
+            main_html = self.create_main_analysis_html(timestamp, courses)
             main_file = os.path.join(analysis_dir, "index.html")
             with open(main_file, "w", encoding="utf-8") as f:
                 f.write(main_html)
-
-            # Générer les pages d'analyses individuelles
-            self.export_progression_analysis(analysis_dir)
-            self.export_elevation_analysis(analysis_dir)
-            self.export_speed_analysis(analysis_dir)
-            self.export_section_analysis(analysis_dir)
 
             # Ouvrir le fichier principal dans le navigateur
             webbrowser.open(f"file://{os.path.abspath(main_file)}")
@@ -2674,8 +3165,9 @@ class TopAnalysisWindow:
 
         except Exception as e:
             messagebox.showerror("Erreur", f"Erreur lors de l'export: {str(e)}")
+            traceback.print_exc()
 
-    def create_main_analysis_html(self, timestamp):
+    def create_main_analysis_html(self, timestamp, courses):
         """Créer la page principale avec les liens vers toutes les analyses"""
         html = f"""
         <!DOCTYPE html>
@@ -2691,69 +3183,88 @@ class TopAnalysisWindow:
                 .analysis-card:hover {{
                     transform: translateY(-5px);
                 }}
+                .course-section {{
+                    margin-bottom: 2rem;
+                    padding: 1rem;
+                    background-color: #f8f9fa;
+                    border-radius: 8px;
+                }}
             </style>
         </head>
         <body class="bg-light">
             <div class="container py-5">
                 <h1 class="text-center mb-5">Analyses TOP - Grand Raid</h1>
-                <div class="row g-4">
-                    <!-- Progression -->
-                    <div class="col-md-6 col-lg-3">
-                        <div class="card h-100 shadow analysis-card">
-                            <div class="card-body">
-                                <h5 class="card-title">Progression</h5>
-                                <ul class="list-unstyled">
-                                    <li><a href="progression_globale.html" class="text-decoration-none">Progression globale</a></li>
-                                    <li><a href="progression_sections.html" class="text-decoration-none">Progression entre points</a></li>
-                                </ul>
+        """
+
+        # Ajouter une section pour chaque course
+        for course in courses:
+            course_folder = course.lower().replace(" ", "_")
+            html += f"""
+                <div class="course-section">
+                    <h2 class="mb-4">{course}</h2>
+                    <div class="row g-4">
+                        <!-- Progression -->
+                        <div class="col-md-6 col-lg-3">
+                            <div class="card h-100 shadow analysis-card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Progression</h5>
+                                    <ul class="list-unstyled">
+                                        <li><a href="{course_folder}/progression_globale.html" class="text-decoration-none">Progression globale</a></li>
+                                        <li><a href="{course_folder}/progression_sections.html" class="text-decoration-none">Progression entre points</a></li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Dénivelés -->
-                    <div class="col-md-6 col-lg-3">
-                        <div class="card h-100 shadow analysis-card">
-                            <div class="card-body">
-                                <h5 class="card-title">Dénivelés</h5>
-                                <ul class="list-unstyled">
-                                    <li><a href="grimpeurs.html" class="text-decoration-none">Top Grimpeurs</a></li>
-                                    <li><a href="descendeurs.html" class="text-decoration-none">Top Descendeurs</a></li>
-                                </ul>
+                        <!-- Dénivelés -->
+                        <div class="col-md-6 col-lg-3">
+                            <div class="card h-100 shadow analysis-card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Dénivelés</h5>
+                                    <ul class="list-unstyled">
+                                        <li><a href="{course_folder}/grimpeurs.html" class="text-decoration-none">Top Grimpeurs</a></li>
+                                        <li><a href="{course_folder}/descendeurs.html" class="text-decoration-none">Top Descendeurs</a></li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Vitesses -->
-                    <div class="col-md-6 col-lg-3">
-                        <div class="card h-100 shadow analysis-card">
-                            <div class="card-body">
-                                <h5 class="card-title">Vitesses</h5>
-                                <ul class="list-unstyled">
-                                    <li><a href="vitesse_moyenne.html" class="text-decoration-none">Vitesse moyenne</a></li>
-                                    <li><a href="vitesse_effort.html" class="text-decoration-none">Vitesse effort</a></li>
-                                    <li><a href="vitesse_sections.html" class="text-decoration-none">Vitesse par section</a></li>
-                                </ul>
+                        <!-- Vitesses -->
+                        <div class="col-md-6 col-lg-3">
+                            <div class="card h-100 shadow analysis-card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Vitesses</h5>
+                                    <ul class="list-unstyled">
+                                        <li><a href="{course_folder}/vitesse_moyenne.html" class="text-decoration-none">Vitesse moyenne</a></li>
+                                        <li><a href="{course_folder}/vitesse_effort.html" class="text-decoration-none">Vitesse effort</a></li>
+                                        <li><a href="{course_folder}/vitesse_sections.html" class="text-decoration-none">Vitesse par section</a></li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Sections -->
-                    <div class="col-md-6 col-lg-3">
-                        <div class="card h-100 shadow analysis-card">
-                            <div class="card-body">
-                                <h5 class="card-title">Sections</h5>
-                                <ul class="list-unstyled">
-                                    <li><a href="analyse_sections.html" class="text-decoration-none">Analyse par section</a></li>
-                                </ul>
+                        <!-- Sections -->
+                        <div class="col-md-6 col-lg-3">
+                            <div class="card h-100 shadow analysis-card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Sections</h5>
+                                    <ul class="list-unstyled">
+                                        <li><a href="{course_folder}/analyse_sections.html" class="text-decoration-none">Analyse par section</a></li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </body>
-        </html>
-        """
+            """
+
+        html += """
+                </div>
+            </body>
+            </html>
+            """
         return html
+
 
     def get_progression_global_data(self):
         """Récupérer les données du tableau de progression globale"""
@@ -2827,161 +3338,323 @@ class TopAnalysisWindow:
             traceback.print_exc()
             return []
 
-    def export_progression_analysis(self, export_dir):
-        """Exporter les analyses de progression"""
-        # Progression globale
-        table_data = self.get_progression_global_data()
-        html = self.create_analysis_table_html(
-            "Progression globale",
-            ["Position", "Dossard", "Nom", "Course", "Pos. départ", "Pos. finale", "Progression"],
-            table_data
-        )
-        with open(os.path.join(export_dir, "progression_globale.html"), "w", encoding="utf-8") as f:
-            f.write(html)
+    def export_progression_analysis(self, export_dir, selected_race):
+        """Exporter les analyses de progression pour une course spécifique"""
+        try:
+            # Progression globale
+            data = self.get_progression_global_data()
+            html = self.create_analysis_table_html(
+                "Progression globale",
+                ["Position", "Dossard", "Nom", "Course", "Pos. départ", "Pos. finale", "Progression"],
+                data,
+                selected_race
+            )
+            filename = f"progression_globale{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
+            with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
+                f.write(html)
 
-        # Progression par sections
-        table_data = self.get_progression_sections_data()
-        html = self.create_analysis_table_html(
-            "Progression entre points",
-            ["Position", "Dossard", "Nom", "Course", "Section", "Progression", "Classements"],
-            table_data
-        )
-        with open(os.path.join(export_dir, "progression_sections.html"), "w", encoding="utf-8") as f:
-            f.write(html)
+            # Progression sections
+            data = self.get_progression_sections_data()
+            html = self.create_analysis_table_html(
+                "Progression entre points",
+                ["Position", "Dossard", "Nom", "Course", "Section", "Progression", "Classements"],
+                data,
+                selected_race
+            )
+            filename = f"progression_sections{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
+            with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
+                f.write(html)
 
-    def export_elevation_analysis(self, export_dir):
-        """Exporter les analyses de dénivelé"""
-        # Grimpeurs
-        table_data = self.get_climbers_data()
-        html = self.create_analysis_table_html(
-            "Top Grimpeurs",
-            ["Position", "Dossard", "Nom", "Course", "D+ total", "Temps", "Vitesse", "Pente moy.", "Tendance"],
-            table_data
-        )
-        with open(os.path.join(export_dir, "grimpeurs.html"), "w", encoding="utf-8") as f:
-            f.write(html)
+        except Exception as e:
+            print(f"Erreur lors de l'export de l'analyse de progression: {str(e)}")
+            traceback.print_exc()
 
-        # Descendeurs
-        table_data = self.get_descenders_data()
-        html = self.create_analysis_table_html(
-            "Top Descendeurs",
-            ["Position", "Dossard", "Nom", "Course", "D- total", "Temps", "Vitesse", "Pente moy.", "Tendance"],
-            table_data
-        )
-        with open(os.path.join(export_dir, "descendeurs.html"), "w", encoding="utf-8") as f:
-            f.write(html)
+    def export_elevation_analysis(self, export_dir, selected_race):
+        """Exporter les analyses de dénivelé pour une course spécifique"""
+        try:
+            # Grimpeurs
+            data = self.get_climbers_data()
+            html = self.create_analysis_table_html(
+                "Top Grimpeurs",
+                ["Position", "Dossard", "Nom", "Course", "D+ total", "Temps", "Vitesse", "Pente moy.", "Tendance"],
+                data,
+                selected_race
+            )
+            filename = f"grimpeurs{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
+            with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
+                f.write(html)
 
-    def export_speed_analysis(self, export_dir):
-        """Exporter les analyses de vitesse"""
-        # Vitesse moyenne
-        table_data = self.get_speed_avg_data()
-        html = self.create_analysis_table_html(
-            "Vitesse moyenne",
-            ["Position", "Dossard", "Nom", "Course", "Vitesse moyenne"],
-            table_data
-        )
-        with open(os.path.join(export_dir, "vitesse_moyenne.html"), "w", encoding="utf-8") as f:
-            f.write(html)
+            # Descendeurs
+            data = self.get_descenders_data()
+            html = self.create_analysis_table_html(
+                "Top Descendeurs",
+                ["Position", "Dossard", "Nom", "Course", "D- total", "Temps", "Vitesse", "Pente moy.", "Tendance"],
+                data,
+                selected_race
+            )
+            filename = f"descendeurs{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
+            with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
+                f.write(html)
 
-        # Vitesse effort
-        table_data = self.get_speed_effort_data()
-        html = self.create_analysis_table_html(
-            "Vitesse effort",
-            ["Position", "Dossard", "Nom", "Course", "Vitesse effort"],
-            table_data
-        )
-        with open(os.path.join(export_dir, "vitesse_effort.html"), "w", encoding="utf-8") as f:
-            f.write(html)
+        except Exception as e:
+            print(f"Erreur lors de l'export de l'analyse des dénivelés: {str(e)}")
+            traceback.print_exc()
 
-        # Vitesse par sections
-        table_data = self.get_speed_sections_data()
-        html = self.create_analysis_table_html(
-            "Vitesse par section",
-            ["Position", "Dossard", "Nom", "Course", "Section", "Distance", "Vitesse"],
-            table_data
-        )
-        with open(os.path.join(export_dir, "vitesse_sections.html"), "w", encoding="utf-8") as f:
-            f.write(html)
+    def export_speed_analysis(self, export_dir, selected_race):
+        """Exporter les analyses de vitesse pour une course spécifique"""
+        try:
+            # Vitesse moyenne
+            data = self.get_speed_avg_data()
+            html = self.create_analysis_table_html(
+                "Vitesse moyenne",
+                ["Position", "Dossard", "Nom", "Course", "Vitesse moyenne"],
+                data,
+                selected_race
+            )
+            filename = f"vitesse_moyenne{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
+            with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
+                f.write(html)
+
+            # Vitesse effort
+            data = self.get_speed_effort_data()
+            html = self.create_analysis_table_html(
+                "Vitesse effort",
+                ["Position", "Dossard", "Nom", "Course", "Vitesse effort"],
+                data,
+                selected_race
+            )
+            filename = f"vitesse_effort{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
+            with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
+                f.write(html)
+
+            # Vitesse par sections
+            data = self.get_speed_sections_data()
+            html = self.create_analysis_table_html(
+                "Vitesse par section",
+                ["Position", "Dossard", "Nom", "Course", "Section", "Distance", "Vitesse"],
+                data,
+                selected_race
+            )
+            filename = f"vitesse_sections{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
+            with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
+                f.write(html)
+
+        except Exception as e:
+            print(f"Erreur lors de l'export de l'analyse des vitesses: {str(e)}")
+            traceback.print_exc()
 
     def export_section_analysis(self, export_dir):
-        """Exporter l'analyse par section"""
+        """Exporter l'analyse des sections"""
         try:
-            # Créer un dossier pour les sections si nécessaire
-            sections_dir = os.path.join(export_dir, "sections")
-            os.makedirs(sections_dir, exist_ok=True)
+            # Récupérer toutes les courses
+            courses = ["Toutes les courses"] + sorted(list(set(
+                data['infos']['race_name']
+                for bib in self.bibs
+                if str(bib) in self.scraper.all_data
+                for data in [self.scraper.all_data[str(bib)]]
+            )))
 
-            # Générer le HTML pour chaque course
-            for course in self.race_values:
-                self.race_selector.set(course)
-                html = self.create_section_analysis_html()
+            # Générer le HTML avec les données préchargées
+            html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Analyse par sections</title>
+                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+                <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+                <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+                <script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
+                <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css">
+                <style>
+                    .section-card { 
+                        margin-bottom: 1rem; 
+                        border: 1px solid #dee2e6;
+                        border-radius: 0.25rem;
+                    }
+                    .section-header {
+                        padding: 1rem;
+                        background-color: #f8f9fa;
+                        cursor: pointer;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }
+                    .section-content {
+                        display: none;
+                        padding: 1rem;
+                    }
+                    .performance-section { margin-top: 1rem; }
+                    .toggle-icon { font-size: 1.2rem; }
+                    .section-info {
+                        display: flex;
+                        gap: 2rem;
+                        color: #666;
+                        margin: 1rem 0;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container py-4">
+                    <h1>Analyse par sections</h1>
+                    <div class="mb-4">
+                        <a href="index.html" class="btn btn-secondary">← Retour au menu</a>
+                    </div>
 
-                # Créer le nom de fichier basé sur la course
-                filename = "analyse_sections.html" if course == "Toutes les courses" else f"analyse_sections_{course.lower().replace(' ', '_')}.html"
+                    <div class="mb-3">
+                        <label for="courseSelect" class="form-label">Sélectionner une course:</label>
+                        <select id="courseSelect" class="form-select" style="width: auto;">
+            """
 
-                with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
-                    f.write(html)
+            # Ajouter les options de course
+            for course in courses:
+                html += f'<option value="{course}">{course}</option>'
+
+            html += """
+                        </select>
+                    </div>
+            """
+
+            # Pour chaque course, préchoarger et ajouter les données
+            for course in courses:
+                section_data = self.preload_section_data(course)
+
+                html += f"""
+                    <div class="course-sections" id="sections-{course.lower().replace(' ', '-')}">
+                """
+
+                for section_name, data in section_data.items():
+                    html += f"""
+                        <div class="section-card">
+                            <div class="section-header" onclick="toggleSection(this)">
+                                <h3 class="mb-0">{section_name}</h3>
+                                <span class="toggle-icon">▼</span>
+                            </div>
+                            <div class="section-content">
+                                <div class="section-info">
+                                    <div>Distance: {data['info']['distance']:.1f} km</div>
+                                    <div>D+: {data['info']['elevation_gain']} m</div>
+                                    <div>D-: {data['info']['elevation_loss']} m</div>
+                                </div>
+
+                                <div class="performance-section">
+                                    <h4>Top temps</h4>
+                                    {self.create_section_table_html(
+                        data['temps'],
+                        ["Position", "Dossard", "Nom", "Course", "Temps", "Vitesse"],
+                        f"temps-{section_name.lower().replace(' ', '-')}"
+                    )}
+                                </div>
+
+                                <div class="performance-section">
+                                    <h4>Top progressions</h4>
+                                    {self.create_section_table_html(
+                        data['progression'],
+                        ["Position", "Dossard", "Nom", "Course", "Progression", "Évolution"],
+                        f"progression-{section_name.lower().replace(' ', '-')}"
+                    )}
+                                </div>
+                            </div>
+                        </div>
+                    """
+
+                html += "</div>"
+
+            html += """
+                    <script>
+                        function toggleSection(header) {
+                            const content = header.nextElementSibling;
+                            const icon = header.querySelector('.toggle-icon');
+
+                            if (content.style.display === 'none' || !content.style.display) {
+                                content.style.display = 'block';
+                                icon.textContent = '▲';
+                            } else {
+                                content.style.display = 'none';
+                                icon.textContent = '▼';
+                            }
+                        }
+
+                        $(document).ready(function() {
+                            // Cacher toutes les sections sauf la première course
+                            $('.course-sections').hide();
+                            $('.course-sections').first().show();
+
+                            // Gérer le changement de course
+                            $('#courseSelect').change(function() {
+                                let selectedCourse = $(this).val().replace(/ +/g, '-').toLowerCase();
+                                $('.course-sections').hide();
+                                $('#sections-' + selectedCourse).show();
+                            });
+                        });
+                    </script>
+                </div>
+            </body>
+            </html>
+            """
+
+            # Sauvegarder le fichier
+            with open(os.path.join(export_dir, "analyse_sections.html"), "w", encoding="utf-8") as f:
+                f.write(html)
 
         except Exception as e:
             print(f"Erreur lors de l'export de l'analyse des sections: {str(e)}")
             traceback.print_exc()
 
-    def create_analysis_table_html(self, title, headers, data):
-        """Créer un tableau HTML pour une analyse"""
+    def create_analysis_table_html(self, title, headers, data, selected_race):
         html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
             <title>{title}</title>
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
             <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
             <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
-            <script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
             <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css">
             <style>
-                .positive-evolution {{ color: #28a745; }}
-                .negative-evolution {{ color: #dc3545; }}
-                .neutral-evolution {{ color: #6c757d; }}
-                body {{ 
-                    background-color: #f8f9fa;
-                    padding: 20px;
-                }}
-                .container-fluid {{
-                    background-color: white;
-                    border-radius: 8px;
-                    padding: 20px;
-                    box-shadow: 0 0 10px rgba(0,0,0,0.1);
-                }}
-                .table {{ 
-                    background-color: white;
-                }}
-                .table thead th {{
-                    background-color: #f8f9fa;
-                }}
+                body {{ padding: 20px; }}
             </style>
         </head>
         <body>
-            <div class="container-fluid">
-                <h2 class="mb-4">{title}</h2>
-                <a href="index.html" class="btn btn-secondary mb-3">← Retour au menu</a>
-                <table id="analysisTable" class="table table-striped table-bordered">
-                    <thead>
-                        <tr>
-                            {"".join(f"<th>{header}</th>" for header in headers)}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {"".join("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in data)}
-                    </tbody>
-                </table>
+            <div class="container">
+                <h2>{title}</h2>
+                <div class="mb-3">
+                    <a href="index.html" class="btn btn-secondary">← Retour au menu</a>
+                </div>
+
+                <div class="mb-3">
+                    <label for="courseSelect" class="form-label">Sélectionner une course:</label>
+                    <select id="courseSelect" class="form-select" style="width: auto;">
+                        <option value="all">Toutes les courses</option>
+                        {self.get_course_options()}
+                    </select>
+                </div>
+
+                <div class="table-responsive">
+                    <table id="analysisTable" class="table table-striped">
+                        <thead>
+                            <tr>{" ".join(f"<th>{header}</th>" for header in headers)}</tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            {"".join(f"<tr>{"".join(f"<td>{value}</td>" for value in row)}</tr>" for row in data)}
+                        </tbody>
+                    </table>
+                </div>
             </div>
+
             <script>
                 $(document).ready(function() {{
-                    $('#analysisTable').DataTable({{
+                    var table = $('#analysisTable').DataTable({{
                         "pageLength": 50,
                         "language": {{
                             "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
                         }}
+                    }});
+
+                    $('#courseSelect').change(function() {{
+                        var selectedCourse = $(this).val();
+                        table.column(3).search(selectedCourse === 'all' ? '' : selectedCourse, true, false).draw();
                     }});
                 }});
             </script>
@@ -2989,6 +3662,50 @@ class TopAnalysisWindow:
         </html>
         """
         return html
+
+    def get_course_options(self):
+        """Générer les options HTML pour le menu déroulant des courses"""
+        races = set()
+        for bib in self.scraper.all_data:
+            race = self.scraper.all_data[bib]['infos']['race_name']
+            races.add(race)
+
+        options = ""
+        for race in sorted(races):
+            options += f'<option value="{race}">{race}</option>'
+        return options
+
+    def create_course_tables(self, headers, data):
+        """Créer des tableaux HTML séparés pour chaque course"""
+        races = {"all": data}  # Toutes les courses
+
+        # Séparer les données par course
+        for row in data:
+            race = row[3]  # Index de la colonne course
+            if race not in races:
+                races[race] = []
+            races[race].append(row)
+
+        # Créer un tableau pour chaque course
+        tables = ""
+        for race, race_data in races.items():
+            race_id = race.replace(" ", "-")
+            display = "block" if race == "all" else "none"
+
+            tables += f"""
+            <div id="table-{race_id}" class="course-table" style="display: {display}">
+                <table class="table">
+                    <thead>
+                        <tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr>
+                    </thead>
+                    <tbody>
+                        {''.join(f'<tr>{"".join(f"<td>{cell}</td>" for cell in row)}</tr>' for row in race_data)}
+                    </tbody>
+                </table>
+            </div>
+            """
+        return tables
+
 
     def get_climbers_data(self):
         """Récupérer les données du tableau des grimpeurs"""
@@ -3454,26 +4171,51 @@ class TopAnalysisWindow:
         </html>
         """
         return html
-    
-    def create_section_table_html(self, title, headers, data, table_id):
-        """Créer un tableau HTML pour une catégorie d'analyse de section"""
+
+    def create_section_table_html(self, data, headers, table_id=None):
+        """Créer un tableau HTML pour une section"""
+        if not data:
+            return "<div class='alert alert-info'>Aucune donnée disponible pour cette section</div>"
+
+        table_id = table_id or f"table-{hash(str(headers))}"
+
         html = f"""
-            <div class="my-4">
-                <h5>{title}</h5>
-                <table id="{table_id}" class="table table-striped table-bordered datatable">
+            <div class="table-responsive">
+                <table id="{table_id}" class="table table-striped">
                     <thead>
                         <tr>
                             {"".join(f"<th>{header}</th>" for header in headers)}
                         </tr>
                     </thead>
                     <tbody>
-                        {"".join("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in data)}
+                        {"".join(f"<tr>{"".join(f"<td>{value}</td>" for value in row)}</tr>" for row in data)}
                     </tbody>
                 </table>
             </div>
+
+            <script>
+                // Utiliser une fonction immédiatement invoquée pour éviter les conflits
+                (function() {{
+                    // Vérifier si la table a déjà été initialisée
+                    if (!$.fn.DataTable.isDataTable('#{table_id}')) {{
+                        $('#{table_id}').DataTable({{
+                            "pageLength": 10,
+                            "language": {{
+                                "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
+                            }},
+                            // Désactiver le tri automatique
+                            "order": [],
+                            // Configurer moins d'options dans le menu de pagination
+                            "lengthMenu": [10, 25, 50],
+                            // Simplifier l'interface
+                            "dom": '<"top"lf>rt<"bottom"ip><"clear">'
+                        }});
+                    }}
+                }})();
+            </script>
         """
         return html
-
+    
     def get_section_performances(self, section_name, selected_race):
         """Récupérer toutes les performances pour une section donnée"""
         times = []
