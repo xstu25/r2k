@@ -1,0 +1,151 @@
+
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Vitesse moyenne</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+            <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+            <script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
+            <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css">
+            <style>
+                .progression-positive { color: green; }
+                .progression-negative { color: red; }
+                .sticky-controls {
+                    position: sticky;
+                    top: 0;
+                    background: white;
+                    padding: 1rem 0;
+                    z-index: 1000;
+                    border-bottom: 1px solid #dee2e6;
+                }
+                .nav-section {
+                    border-bottom: 1px solid #dee2e6;
+                    margin-bottom: 1rem;
+                }
+                .nav-section a {
+                    color: #6c757d;
+                    text-decoration: none;
+                    padding: 0.5rem 1rem;
+                    display: inline-block;
+                }
+                .nav-section a:hover {
+                    color: #0d6efd;
+                }
+                .nav-section .active {
+                    color: #0d6efd;
+                    border-bottom: 2px solid #0d6efd;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container-fluid">
+                <div class="sticky-controls">
+                    <div class="row align-items-center">
+                        <div class="col-auto">
+                            <a href="index.html" class="btn btn-secondary">← Retour au menu</a>
+                        </div>
+                        <div class="col">
+                            <h2 class="mb-0">Vitesse moyenne</h2>
+                        </div>
+                        <div class="col-auto">
+                            <select id="courseSelect" class="form-select" onchange="changeCourse(this.value)">
+        <option value="Diagonale des Fous" >Diagonale des Fous</option><option value="Mascareignes" >Mascareignes</option><option value="Metiss Trail" >Metiss Trail</option><option value="Toutes les courses" selected>Toutes les courses</option><option value="Trail de Bourbon" >Trail de Bourbon</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="nav-section">
+                    <div class="container-fluid">
+                        <div class="row">
+        
+                            <div class="col">
+                                <h4>Progression</h4>
+            <a href="progression_globale.html" class="">Progression globale</a><a href="progression_sections.html" class="">Progression entre points</a>
+                            </div>
+            
+                            <div class="col">
+                                <h4>Dénivelés</h4>
+            <a href="grimpeurs.html" class="">Top Grimpeurs</a><a href="descendeurs.html" class="">Top Descendeurs</a>
+                            </div>
+            
+                            <div class="col">
+                                <h4>Vitesses</h4>
+            <a href="vitesse_moyenne.html" class="">Vitesse moyenne</a><a href="vitesse_effort.html" class="">Vitesse effort</a><a href="vitesse_sections.html" class="">Vitesse par section</a>
+                            </div>
+            
+                        </div>
+                    </div>
+                </div>
+
+                <table id="analysisTable" class="table table-striped">
+                    <thead>
+                        <tr>
+        <th>Position</th><th>Dossard</th><th>Nom</th><th>Course</th><th>Vitesse moyenne</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        <tr><td>1</td><td>619</td><td>Damien VASSEUR</td><td>Diagonale des Fous</td><td>6.7 km/h</td></tr><tr><td>2</td><td>3070</td><td>Julien CAMERA</td><td>Mascareignes</td><td>6.6 km/h</td></tr><tr><td>3</td><td>3523</td><td>Paco LEVITRE</td><td>Mascareignes</td><td>6.0 km/h</td></tr><tr><td>4</td><td>5061</td><td>Aurélien OUVRARD</td><td>Trail de Bourbon</td><td>5.7 km/h</td></tr><tr><td>5</td><td>3564</td><td>Xavier ROY</td><td>Mascareignes</td><td>5.6 km/h</td></tr><tr><td>6</td><td>4266</td><td>Richard GURICOLAS</td><td>Mascareignes</td><td>5.5 km/h</td></tr><tr><td>7</td><td>3611</td><td>Guillaume MÉANCE</td><td>Mascareignes</td><td>5.0 km/h</td></tr><tr><td>8</td><td>3047</td><td>Benjamin BASRI</td><td>Mascareignes</td><td>5.0 km/h</td></tr><tr><td>9</td><td>2730</td><td>Regis VOISIN</td><td>Diagonale des Fous</td><td>4.9 km/h</td></tr><tr><td>10</td><td>552</td><td>Alain BEAUSSIER</td><td>Diagonale des Fous</td><td>4.8 km/h</td></tr><tr><td>11</td><td>1747</td><td>Guillaume DESCOMBES</td><td>Diagonale des Fous</td><td>4.8 km/h</td></tr><tr><td>12</td><td>7193</td><td>Lara PERRAUD</td><td>Metiss Trail</td><td>4.7 km/h</td></tr><tr><td>13</td><td>660</td><td>Marion FORTIN</td><td>Diagonale des Fous</td><td>4.6 km/h</td></tr><tr><td>14</td><td>4113</td><td>Stephanie LEFEBVRE FLEUROUX</td><td>Mascareignes</td><td>4.5 km/h</td></tr><tr><td>15</td><td>3982</td><td>Clément CIVADE</td><td>Mascareignes</td><td>4.4 km/h</td></tr><tr><td>16</td><td>4438</td><td>Anais GRIMAL</td><td>Mascareignes</td><td>4.4 km/h</td></tr><tr><td>17</td><td>5975</td><td>Philippe CONY</td><td>Trail de Bourbon</td><td>4.3 km/h</td></tr><tr><td>18</td><td>3263</td><td>David BORDES</td><td>Mascareignes</td><td>4.3 km/h</td></tr><tr><td>19</td><td>1761</td><td>Wilfrid MARQUE</td><td>Diagonale des Fous</td><td>4.3 km/h</td></tr><tr><td>20</td><td>3295</td><td>Clement JOLLY</td><td>Mascareignes</td><td>4.3 km/h</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <script>
+                function changeCourse(course) {
+                    const currentPath = window.location.pathname;
+                    const basePath = currentPath.split('/').slice(0, -1).join('/');
+                    const currentFile = currentPath.split('/').pop();
+
+                    const pageTypes = {
+                        'vitesse_moyenne': 'vitesse_moyenne',
+                        'vitesse_effort': 'vitesse_effort',
+                        'vitesse_sections': 'vitesse_sections',
+                        'progression_globale': 'progression_globale',
+                        'progression_sections': 'progression_sections',
+                        'grimpeurs': 'grimpeurs',
+                        'descendeurs': 'descendeurs'
+                    };
+
+                    let pageType = '';
+                    for (const type in pageTypes) {
+                        if (currentFile.startsWith(type)) {
+                            pageType = type;
+                            break;
+                        }
+                    }
+
+                    if (!pageType) {
+                        console.error('Type de page non reconnu:', currentFile);
+                        return;
+                    }
+
+                    let newPage;
+                    if (course === "Toutes les courses") {
+                        newPage = `${pageType}.html`;
+                    } else {
+                        const normalizedCourse = course.toLowerCase()
+                            .replace(/ /g, '_')
+                            .normalize('NFD')
+                            .replace(/[̀-ͯ]/g, '');
+                        newPage = `${pageType}_${normalizedCourse}.html`;
+                    }
+
+                    window.location.href = `${basePath}/${newPage}`;
+                }
+
+                $(document).ready(function() {
+                    const table = $('#analysisTable').DataTable({
+                        "pageLength": 20,
+                        "lengthMenu": [20],
+                        "language": {
+                            "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
+                        },
+                        "order": [[0, "asc"]],
+                        "dom": 'rt<"bottom"ip>'
+                    });
+                });
+            </script>
+        </body>
+        </html>
+        
