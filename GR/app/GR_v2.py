@@ -804,7 +804,7 @@ class RaceTrackerApp:
 
                 # 1. Progression
                 # Progression globale
-                data = top_analysis.get_progression_global_data()
+                data = top_analysis.get_progression_global_data(selected_race)
                 html = top_analysis.create_analysis_table_html(
                     "Progression globale",
                     ["Position", "Dossard", "Nom", "Course", "Pos. départ", "Pos. finale", "Progression"],
@@ -1104,14 +1104,6 @@ class RaceTrackerApp:
         # Récupérer les données du coureur
         runner_data = self.scraper.all_data[bib]
 
-        # Debug pour vérifier la structure des données
-        print(f"\nDonnées du coureur {bib}:")
-        print(f"Clés disponibles: {runner_data.keys()}")
-        if 'checkpoints' in runner_data:
-            print(f"Nombre de checkpoints: {len(runner_data['checkpoints'])}")
-            if len(runner_data['checkpoints']) > 0:
-                print(f"Structure d'un checkpoint: {runner_data['checkpoints'][0].keys()}")
-
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -1172,9 +1164,9 @@ class RaceTrackerApp:
                 </div>
         """
 
-        # Initialiser html_checkpoints ici
+        # Checkpoints section
         if 'checkpoints' in runner_data and runner_data['checkpoints']:
-            html_checkpoints = """
+            html += """
                 <div class="row">
                     <div class="col">
                         <h4>Points de passage</h4>
@@ -1197,6 +1189,7 @@ class RaceTrackerApp:
             """
 
             for cp in runner_data['checkpoints']:
+                # Traitement de l'évolution du classement
                 evolution = cp.get('rank_evolution')
                 if evolution is not None:
                     if evolution > 0:
@@ -1208,11 +1201,12 @@ class RaceTrackerApp:
                 else:
                     evolution_text = '-'
 
+                # Formatage des valeurs
                 kilometer = f"{cp.get('kilometer', 0):.1f}" if cp.get('kilometer') is not None else "-"
                 elevation_gain = f"{cp.get('elevation_gain', 0)}m" if cp.get('elevation_gain') is not None else "-"
                 elevation_loss = f"{cp.get('elevation_loss', 0)}m" if cp.get('elevation_loss') is not None else "-"
 
-                html_checkpoints += f"""
+                html += f"""
                     <tr>
                         <td>{cp.get('point', '-')}</td>
                         <td>{kilometer}</td>
@@ -1227,15 +1221,14 @@ class RaceTrackerApp:
                     </tr>
                 """
 
-            html_checkpoints += """
+            html += """
                             </tbody>
                         </table>
                     </div>
                 </div>
             """
         else:
-            # Message si pas de points de passage
-            html_checkpoints = """
+            html += """
                 <div class="row">
                     <div class="col">
                         <div class="alert alert-info" role="alert">
@@ -1245,15 +1238,14 @@ class RaceTrackerApp:
                 </div>
             """
 
-        html_end = """
-            </div>
-        </body>
-        </html>
+        # Fermeture des balises
+        html += """
+                </div>
+            </body>
+            </html>
         """
 
-        full_html = html + html_checkpoints + html_end
-        print(f"HTML généré pour le coureur {bib}")
-        return full_html
+        return html
 
     def create_widgets(self):
         self.main_frame = ctk.CTkFrame(self.root)
@@ -1784,15 +1776,18 @@ class TopAnalysisWindow:
                                 current_section = f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}"
                                 if current_section == section_name:
                                     try:
-                                        # Calculer temps
-                                        time1 = datetime.strptime(checkpoints[i]['race_time'], "%H:%M:%S")
-                                        time2 = datetime.strptime(checkpoints[i + 1]['race_time'], "%H:%M:%S")
-                                        section_time = str(time2 - time1).split('.')[0]
+                                        # Calculer temps avec la nouvelle méthode
+                                        section_time = self.time_diff(checkpoints[i + 1]['race_time'],
+                                                                      checkpoints[i]['race_time'])
 
-                                        # Calculer vitesse
-                                        hours = (time2 - time1).total_seconds() / 3600
-                                        distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
-                                        speed = distance / hours if hours > 0 else 0
+                                        if section_time is not None:
+                                            # Convertir le temps HH:MM:SS en heures pour le calcul de vitesse
+                                            h, m, s = map(int, section_time.split(':'))
+                                            hours = h + m / 60 + s / 3600
+
+                                            # Calculer vitesse
+                                            distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+                                            speed = distance / hours if hours > 0 else 0
 
                                         # Calculer vitesse effort
                                         d_plus = checkpoints[i]['elevation_gain'] or 0
@@ -2429,7 +2424,7 @@ class TopAnalysisWindow:
             tree.pack(fill=tk.X, padx=5, pady=5)
 
     def update_elevation_displays(self, selected_race):
-        """Mettre à jour les affichages de dénivelé avec tooltips et indicateurs de tendance"""
+        """Mettre à jour les affichages de dénivelé avec les calculs corrigés"""
         # Calcul pour les grimpeurs
         climbers = []
         for bib in self.bibs:
@@ -2437,51 +2432,49 @@ class TopAnalysisWindow:
                 data = self.scraper.all_data[str(bib)]
                 if selected_race == "Toutes les courses" or data['infos']['race_name'] == selected_race:
                     checkpoints = data['checkpoints']
-                    total_elevation_time = 0
-                    total_elevation_gain = 0
-                    total_distance = 0
 
                     for i in range(len(checkpoints) - 1):
-                        if checkpoints[i]['elevation_gain'] > 100:  # Sections significatives
+                        if checkpoints[i + 1]['elevation_gain'] > 100:  # sections significatives
                             try:
-                                time1 = datetime.strptime(checkpoints[i]['race_time'], "%H:%M:%S")
-                                time2 = datetime.strptime(checkpoints[i + 1]['race_time'], "%H:%M:%S")
-                                segment_time = (time2 - time1).total_seconds() / 3600
-                                distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+                                elevation_gain = checkpoints[i + 1]['elevation_gain']
+                                section_time = self.time_diff(checkpoints[i + 1]['race_time'],
+                                                              checkpoints[i]['race_time'])
 
-                                if segment_time > 0:
-                                    total_elevation_time += segment_time
-                                    total_elevation_gain += checkpoints[i]['elevation_gain']
-                                    total_distance += distance
-                            except:
+                                if section_time:
+                                    # Convertir le temps en heures
+                                    h, m, s = map(int, section_time.split(':'))
+                                    time_hours = h + m / 60 + s / 3600
+
+                                    distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+
+                                    if time_hours > 0:
+                                        # Vitesse verticale en m/h
+                                        vertical_speed = elevation_gain / time_hours
+
+                                        # Pente moyenne en %
+                                        slope_percentage = (elevation_gain / (
+                                                    distance * 1000)) * 100 if distance > 0 else 0
+
+                                        section_name = f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}"
+
+                                        climbers.append({
+                                            'speed': vertical_speed,
+                                            'bib': bib,
+                                            'name': data['infos']['name'],
+                                            'race': data['infos']['race_name'],
+                                            'elevation_gain': elevation_gain,
+                                            'time_hours': time_hours,
+                                            'time': section_time,
+                                            'slope': slope_percentage,
+                                            'section': section_name
+                                        })
+                            except Exception as e:
+                                print(f"Erreur sur segment montée {i} pour dossard {bib}: {e}")
                                 continue
-
-                    if total_elevation_time > 0:
-                        climbing_speed = total_elevation_gain / total_elevation_time
-                        # Calculer le ratio dénivelé/distance pour évaluer la difficulté
-                        elevation_ratio = total_elevation_gain / (total_distance * 1000) if total_distance > 0 else 0
-                        climbers.append({
-                            'speed': climbing_speed,
-                            'bib': bib,
-                            'name': data['infos']['name'],
-                            'race': data['infos']['race_name'],
-                            'elevation_gain': total_elevation_gain,
-                            'time': total_elevation_time,
-                            'distance': total_distance,
-                            'elevation_ratio': elevation_ratio
-                        })
 
         climbers.sort(key=lambda x: x['speed'], reverse=True)
 
-        # Tooltips pour les grimpeurs
-        climber_tooltips = {
-            "elevation": "Dénivelé positif total cumulé sur les sections de montée significative (>100m D+)",
-            "time": "Temps total passé sur les sections de montée significative",
-            "speed": "Vitesse verticale moyenne en montée (mètres de dénivelé par heure)",
-            "ratio": "Pourcentage moyen de pente (D+ / Distance horizontale)",
-            "tendency": "Indicateur de difficulté basé sur le ratio dénivelé/distance"
-        }
-
+        # Affichage des grimpeurs
         if climbers:
             ctk.CTkLabel(
                 self.climbers_scroll,
@@ -2489,7 +2482,7 @@ class TopAnalysisWindow:
                 font=("Arial", 16, "bold")
             ).pack(pady=10)
 
-            columns = ["rank", "bib", "name", "race", "elevation", "time", "speed", "ratio", "tendency"]
+            columns = ["rank", "bib", "name", "race", "section", "elevation", "time", "speed", "slope"]
             headers = {
                 "rank": "Position",
                 "rank_width": 80,
@@ -2499,25 +2492,17 @@ class TopAnalysisWindow:
                 "name_width": 200,
                 "race": "Course",
                 "race_width": 150,
-                "elevation": "D+ total",
+                "section": "Section",
+                "section_width": 200,
+                "elevation": "D+",
                 "elevation_width": 100,
                 "time": "Temps",
                 "time_width": 100,
                 "speed": "Vitesse",
                 "speed_width": 100,
-                "ratio": "Pente moy.",
-                "ratio_width": 100,
-                "tendency": "Tendance",
-                "tendency_width": 80
+                "slope": "Pente",
+                "slope_width": 100
             }
-
-            def get_climb_indicator(ratio):
-                if ratio > 0.15:  # >15%
-                    return "↗️↗️↗️"  # Très raide
-                elif ratio > 0.10:  # >10%
-                    return "↗️↗️"  # Raide
-                else:
-                    return "↗️"  # Modéré
 
             data = [
                 (
@@ -2525,69 +2510,68 @@ class TopAnalysisWindow:
                     climb['bib'],
                     climb['name'],
                     climb['race'],
+                    climb['section'],
                     f"{climb['elevation_gain']}m",
-                    f"{climb['time']:.1f}h",
+                    climb['time'],
                     f"{climb['speed']:.1f} m/h",
-                    f"{(climb['elevation_ratio'] * 100):.1f}%",
-                    get_climb_indicator(climb['elevation_ratio'])
+                    f"{climb['slope']:.1f}%"
                 )
                 for i, climb in enumerate(climbers[:20])
             ]
 
-            tree = self.create_table(self.climbers_scroll, columns, headers, data, tooltips=climber_tooltips)
+            tree = self.create_table(self.climbers_scroll, columns, headers, data)
             tree.pack(fill=tk.X, padx=5, pady=5)
 
-        # Descente (avec les mêmes améliorations)
+        # Calcul pour les descendeurs
         descenders = []
         for bib in self.bibs:
             if str(bib) in self.scraper.all_data:
                 data = self.scraper.all_data[str(bib)]
                 if selected_race == "Toutes les courses" or data['infos']['race_name'] == selected_race:
                     checkpoints = data['checkpoints']
-                    total_descent_time = 0
-                    total_elevation_loss = 0
-                    total_distance = 0
 
                     for i in range(len(checkpoints) - 1):
-                        if checkpoints[i]['elevation_loss'] > 100:
+                        if checkpoints[i + 1]['elevation_loss'] > 100:  # sections significatives
                             try:
-                                time1 = datetime.strptime(checkpoints[i]['race_time'], "%H:%M:%S")
-                                time2 = datetime.strptime(checkpoints[i + 1]['race_time'], "%H:%M:%S")
-                                segment_time = (time2 - time1).total_seconds() / 3600
-                                distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+                                elevation_loss = checkpoints[i + 1]['elevation_loss']
+                                section_time = self.time_diff(checkpoints[i + 1]['race_time'],
+                                                              checkpoints[i]['race_time'])
 
-                                if segment_time > 0:
-                                    total_descent_time += segment_time
-                                    total_elevation_loss += abs(checkpoints[i]['elevation_loss'])
-                                    total_distance += distance
-                            except:
+                                if section_time:
+                                    # Convertir le temps en heures
+                                    h, m, s = map(int, section_time.split(':'))
+                                    time_hours = h + m / 60 + s / 3600
+
+                                    distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+
+                                    if time_hours > 0:
+                                        # Vitesse verticale en m/h
+                                        vertical_speed = elevation_loss / time_hours
+
+                                        # Pente moyenne en %
+                                        slope_percentage = (elevation_loss / (
+                                                    distance * 1000)) * 100 if distance > 0 else 0
+
+                                        section_name = f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}"
+
+                                        descenders.append({
+                                            'speed': vertical_speed,
+                                            'bib': bib,
+                                            'name': data['infos']['name'],
+                                            'race': data['infos']['race_name'],
+                                            'elevation_loss': elevation_loss,
+                                            'time_hours': time_hours,
+                                            'time': section_time,
+                                            'slope': slope_percentage,
+                                            'section': section_name
+                                        })
+                            except Exception as e:
+                                print(f"Erreur sur segment descente {i} pour dossard {bib}: {e}")
                                 continue
-
-                    if total_descent_time > 0:
-                        descending_speed = total_elevation_loss / total_descent_time
-                        elevation_ratio = total_elevation_loss / (total_distance * 1000) if total_distance > 0 else 0
-                        descenders.append({
-                            'speed': descending_speed,
-                            'bib': bib,
-                            'name': data['infos']['name'],
-                            'race': data['infos']['race_name'],
-                            'elevation_loss': total_elevation_loss,
-                            'time': total_descent_time,
-                            'distance': total_distance,
-                            'elevation_ratio': elevation_ratio
-                        })
 
         descenders.sort(key=lambda x: x['speed'], reverse=True)
 
-        # Tooltips pour les descendeurs
-        descender_tooltips = {
-            "elevation": "Dénivelé négatif total cumulé sur les sections de descente significative (>100m D-)",
-            "time": "Temps total passé sur les sections de descente significative",
-            "speed": "Vitesse verticale moyenne en descente (mètres de dénivelé par heure)",
-            "ratio": "Pourcentage moyen de pente (D- / Distance horizontale)",
-            "tendency": "Indicateur de difficulté basé sur le ratio dénivelé/distance"
-        }
-
+        # Affichage des descendeurs
         if descenders:
             ctk.CTkLabel(
                 self.descenders_scroll,
@@ -2595,32 +2579,24 @@ class TopAnalysisWindow:
                 font=("Arial", 16, "bold")
             ).pack(pady=10)
 
-            def get_descent_indicator(ratio):
-                if ratio > 0.15:  # >15%
-                    return "↘️↘️↘️"  # Très raide
-                elif ratio > 0.10:  # >10%
-                    return "↘️↘️"  # Raide
-                else:
-                    return "↘️"  # Modéré
-
             data = [
                 (
                     i + 1,
                     desc['bib'],
                     desc['name'],
                     desc['race'],
+                    desc['section'],
                     f"{desc['elevation_loss']}m",
-                    f"{desc['time']:.1f}h",
+                    desc['time'],
                     f"{desc['speed']:.1f} m/h",
-                    f"{(desc['elevation_ratio'] * 100):.1f}%",
-                    get_descent_indicator(desc['elevation_ratio'])
+                    f"{desc['slope']:.1f}%"
                 )
                 for i, desc in enumerate(descenders[:20])
             ]
 
-            tree = self.create_table(self.descenders_scroll, columns, headers, data, tooltips=descender_tooltips)
+            tree = self.create_table(self.descenders_scroll, columns, headers, data)
             tree.pack(fill=tk.X, padx=5, pady=5)
-
+            
     def update_speed_displays(self, selected_race):
         """Mettre à jour les affichages de vitesse"""
         speeds = []
@@ -2666,23 +2642,29 @@ class TopAnalysisWindow:
                     # Calcul des vitesses par section
                     for i in range(len(checkpoints) - 1):
                         try:
-                            time1 = datetime.strptime(checkpoints[i]['race_time'], "%H:%M:%S")
-                            time2 = datetime.strptime(checkpoints[i + 1]['race_time'], "%H:%M:%S")
-                            segment_time = (time2 - time1).total_seconds() / 3600
-                            distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+                            # Utiliser time_diff pour obtenir le temps au format HH:MM:SS
+                            time_diff_str = self.time_diff(checkpoints[i + 1]['race_time'],
+                                                           checkpoints[i]['race_time'])
 
-                            if segment_time > 0:
-                                section_speed = distance / segment_time
-                                section_speeds.append({
-                                    'speed': section_speed,
-                                    'bib': bib,
-                                    'name': data['infos']['name'],
-                                    'race': data['infos']['race_name'],
-                                    'from_point': checkpoints[i]['point'],
-                                    'to_point': checkpoints[i + 1]['point'],
-                                    'distance': distance
-                                })
-                        except:
+                            if time_diff_str:
+                                # Convertir le temps HH:MM:SS en heures
+                                hours, minutes, seconds = map(int, time_diff_str.split(':'))
+                                segment_time = hours + minutes / 60 + seconds / 3600
+                                distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+
+                                if segment_time > 0:
+                                    section_speed = distance / segment_time
+                                    section_speeds.append({
+                                        'speed': section_speed,
+                                        'bib': bib,
+                                        'name': data['infos']['name'],
+                                        'race': data['infos']['race_name'],
+                                        'from_point': checkpoints[i]['point'],
+                                        'to_point': checkpoints[i + 1]['point'],
+                                        'distance': distance
+                                    })
+                        except Exception as e:
+                            print(f"Erreur calcul vitesse section {i} pour dossard {bib}: {e}")
                             continue
 
         # Afficher les vitesses moyennes
@@ -3083,89 +3065,113 @@ class TopAnalysisWindow:
 
     def time_diff(self, time2, time1):
         """
-        Calcule la différence entre deux temps au format HH:MM:SS
+        Calcule la différence entre deux temps au format HH:MM:SS, gère >24h
         Retourne le résultat au format HH:MM:SS
         """
         try:
-            # Extraire les heures, minutes, secondes
+            # Séparer les composantes des temps
             h1, m1, s1 = map(int, time1.split(':'))
             h2, m2, s2 = map(int, time2.split(':'))
 
-            # Convertir en secondes pour le calcul
-            total_seconds = (h2 * 3600 + m2 * 60 + s2) - (h1 * 3600 + m1 * 60 + s1)
+            # Calculer chaque composante séparément
+            total_h = h2 - h1
+            total_m = m2 - m1
+            total_s = s2 - s1
 
-            # Reconvertir en HH:MM:SS
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            seconds = total_seconds % 60
+            # Gérer les retenues
+            if total_s < 0:
+                total_s += 60
+                total_m -= 1
 
-            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            if total_m < 0:
+                total_m += 60
+                total_h -= 1
+
+            # total_h peut être positif ou négatif ici, c'est normal pour >24h
+
+            return f"{total_h:02d}:{total_m:02d}:{total_s:02d}"
+
         except Exception as e:
             print(f"Erreur lors du calcul de différence de temps: {e}")
             return None
 
-
     def export_analyses(self):
-        """Exporter toutes les analyses en HTML"""
         try:
-            # Créer un dossier pour les exports s'il n'existe pas
-            export_dir = "exports"
-            if not os.path.exists(export_dir):
-                os.makedirs(export_dir)
-
-            # Timestamp pour le nom des fichiers
+            # Timestamp pour le nom du dossier
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            analysis_dir = f"analyses_{timestamp}"
+            os.makedirs(analysis_dir, exist_ok=True)
 
-            # Créer le dossier pour cette analyse
-            analysis_dir = os.path.join(export_dir, f"analyses_{timestamp}")
-            os.makedirs(analysis_dir)
+            # Récupérer la liste complète des courses
+            all_courses = set(["Toutes les courses"])
+            for bib in self.scraper.all_data:
+                race_name = self.scraper.all_data[bib]['infos']['race_name']
+                all_courses.add(race_name)
 
-            # Obtenir la liste des courses et la course sélectionnée
-            selected_race = self.race_selector.get()
-            courses = ["Toutes les courses"] + sorted(list(set(
-                data['infos']['race_name']
-                for bib in self.bibs
-                if str(bib) in self.scraper.all_data
-                for data in [self.scraper.all_data[str(bib)]]
-            )))
+            courses = sorted(list(all_courses))
 
-            # Pour chaque course, créer un sous-dossier et générer les analyses
-            for race in courses:
-                # Créer un sous-dossier pour la course
-                race_dir = os.path.join(analysis_dir, race.lower().replace(" ", "_"))
-                os.makedirs(race_dir)
+            # Pour chaque course, générer tous les fichiers d'analyse
+            for course in courses:
+                normalized_course = course.lower().replace(' ', '_')
+                if course != "Toutes les courses":
+                    normalized_course = normalized_course.encode('ascii', 'ignore').decode()
 
-                # Sauvegarder la sélection actuelle
-                current_selection = self.race_selector.get()
+                # Liste des types d'analyses à générer
+                analysis_types = {
+                    'progression_globale': (self.get_progression_global_data,
+                                            ["Position", "Dossard", "Nom", "Course", "Pos. départ", "Pos. finale",
+                                             "Progression"]),
+                    'progression_sections': (self.get_progression_sections_data,
+                                             ["Position", "Dossard", "Nom", "Course", "Section", "Progression",
+                                              "Classements"]),
+                    'grimpeurs': (self.get_climbers_data,
+                                  ["Position", "Dossard", "Nom", "Course", "D+ total", "Temps", "Vitesse", "Pente moy.",
+                                   "Tendance"]),
+                    'descendeurs': (self.get_descenders_data,
+                                    ["Position", "Dossard", "Nom", "Course", "D- total", "Temps", "Vitesse",
+                                     "Pente moy.", "Tendance"]),
+                    'vitesse_moyenne': (self.get_speed_avg_data,
+                                        ["Position", "Dossard", "Nom", "Course", "Vitesse moyenne"]),
+                    'vitesse_effort': (self.get_speed_effort_data,
+                                       ["Position", "Dossard", "Nom", "Course", "Vitesse effort"]),
+                    'vitesse_sections': (self.get_speed_sections_data,
+                                         ["Position", "Dossard", "Nom", "Course", "Section", "Distance", "Vitesse"])
+                }
 
-                # Changer temporairement la sélection pour la course en cours
-                self.race_selector.set(race)
+                for analysis_type, (data_func, headers) in analysis_types.items():
+                    # Construire le nom du fichier
+                    if course == "Toutes les courses":
+                        filename = f"{analysis_type}.html"
+                    else:
+                        filename = f"{analysis_type}_{normalized_course}.html"
 
-                # Générer les pages d'analyses pour cette course
-                self.export_progression_analysis(race_dir)
-                self.export_elevation_analysis(race_dir)
-                self.export_speed_analysis(race_dir)
-                self.export_section_analysis(race_dir)
+                    # Récupérer et formater les données
+                    data = data_func(course)
 
-                # Restaurer la sélection originale
-                self.race_selector.set(current_selection)
+                    # Générer le HTML
+                    html = self.create_analysis_table_html(
+                        analysis_type.replace('_', ' ').title(),
+                        headers,
+                        data,
+                        course
+                    )
 
-            # Générer le fichier index principal avec les liens vers toutes les analyses
-            main_html = self.create_main_analysis_html(timestamp, courses)
-            main_file = os.path.join(analysis_dir, "index.html")
-            with open(main_file, "w", encoding="utf-8") as f:
-                f.write(main_html)
+                    # Sauvegarder le fichier
+                    filepath = os.path.join(analysis_dir, filename)
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(html)
 
-            # Ouvrir le fichier principal dans le navigateur
-            webbrowser.open(f"file://{os.path.abspath(main_file)}")
-            messagebox.showinfo(
-                "Export réussi",
-                f"Les analyses ont été exportées dans le dossier:\n{analysis_dir}"
-            )
+            # Créer l'index des analyses
+            index_html = self.create_analyses_index_html(courses)
+            with open(os.path.join(analysis_dir, "index.html"), "w", encoding='utf-8') as f:
+                f.write(index_html)
+
+            return analysis_dir
 
         except Exception as e:
-            messagebox.showerror("Erreur", f"Erreur lors de l'export: {str(e)}")
+            print(f"Erreur lors de l'export des analyses: {str(e)}")
             traceback.print_exc()
+            return None
 
     def create_main_analysis_html(self, timestamp, courses):
         """Créer la page principale avec les liens vers toutes les analyses"""
@@ -3265,115 +3271,166 @@ class TopAnalysisWindow:
             """
         return html
 
-
-    def get_progression_global_data(self):
+    def get_progression_global_data(self, selected_race="Toutes les courses"):
         """Récupérer les données du tableau de progression globale"""
-        try:
-            data = []
-            # Trouver le tableau de progression globale dans le frame correspondant
-            for widget in self.progress_global_scroll.winfo_children():
-                if isinstance(widget, ttk.Treeview):
-                    # Pour chaque ligne du tableau
-                    for item in widget.get_children():
-                        # Récupérer les valeurs de la ligne
-                        values = widget.item(item)['values']
-                        if values:
-                            data.append([
-                                values[0],  # Position
-                                values[1],  # Dossard
-                                values[2],  # Nom
-                                values[3],  # Course
-                                values[4],  # Position départ
-                                values[5],  # Position finale
-                                values[6]  # Progression
-                            ])
-                    break  # Une fois le tableau trouvé et traité, on sort de la boucle
+        global_progressions = []
 
-            # Si aucune donnée n'a été trouvée, afficher un message de debug
-            if not data:
-                print("Aucune donnée trouvée dans le tableau de progression globale")
-                # Vérifier quels widgets sont présents
-                widgets = [str(type(w)) for w in self.progress_global_scroll.winfo_children()]
-                print(f"Widgets trouvés: {widgets}")
+        for bib in self.bibs:
+            if str(bib) in self.scraper.all_data:
+                data = self.scraper.all_data[str(bib)]
 
-            return data
+                # Vérifier la course si un filtre est appliqué
+                if selected_race != "Toutes les courses" and data['infos']['race_name'] != selected_race:
+                    continue
 
-        except Exception as e:
-            print(f"Erreur lors de la récupération des données de progression globale: {str(e)}")
-            traceback.print_exc()
-            return []
+                checkpoints = data['checkpoints']
+                if len(checkpoints) >= 2:
+                    first_rank = None
+                    last_rank = None
 
-    def get_progression_sections_data(self):
-        """Récupérer les données du tableau de progression par sections"""
-        try:
-            data = []
-            # Trouver le tableau dans le frame des sections
-            for widget in self.progress_sections_scroll.winfo_children():
-                if isinstance(widget, ttk.Treeview):
-                    # Pour chaque ligne du tableau
-                    for item in widget.get_children():
-                        # Récupérer les valeurs de la ligne
-                        values = widget.item(item)['values']
-                        if values:
-                            data.append([
-                                values[0],  # Position
-                                values[1],  # Dossard
-                                values[2],  # Nom
-                                values[3],  # Course
-                                values[4],  # Section
-                                values[5],  # Progression
-                                values[6]  # Classements
-                            ])
-                    break
+                    # Trouver le premier classement non-nul
+                    for cp in checkpoints:
+                        if cp['rank']:
+                            try:
+                                rank = int(cp['rank'])
+                                if first_rank is None:
+                                    first_rank = rank
+                            except ValueError:
+                                continue
 
-            if not data:
-                print("Aucune donnée trouvée dans le tableau de progression par sections")
-                widgets = [str(type(w)) for w in self.progress_sections_scroll.winfo_children()]
-                print(f"Widgets trouvés: {widgets}")
+                    # Trouver le dernier classement non-nul
+                    for cp in reversed(checkpoints):
+                        if cp['rank']:
+                            try:
+                                rank = int(cp['rank'])
+                                last_rank = rank
+                                break
+                            except ValueError:
+                                continue
 
-            return data
+                    if first_rank is not None and last_rank is not None:
+                        progression = first_rank - last_rank
+                        global_progressions.append({
+                            'bib': bib,
+                            'name': data['infos']['name'],
+                            'race': data['infos']['race_name'],
+                            'start_pos': first_rank,
+                            'end_pos': last_rank,
+                            'progression': progression
+                        })
 
-        except Exception as e:
-            print(f"Erreur lors de la récupération des données de progression par sections: {str(e)}")
-            traceback.print_exc()
-            return []
+        # Trier par progression
+        global_progressions.sort(key=lambda x: x['progression'], reverse=True)
+        return global_progressions[:20]
+
+    def get_progression_sections_data(self, selected_race="Toutes les courses"):
+        """Récupérer les données du tableau de progression par sections avec correction"""
+        section_progressions = []
+
+        for bib in self.bibs:
+            if str(bib) not in self.scraper.all_data:
+                continue
+
+            data = self.scraper.all_data[str(bib)]
+            if selected_race != "Toutes les courses" and data['infos']['race_name'] != selected_race:
+                continue
+
+            checkpoints = data['checkpoints']
+
+            for i in range(len(checkpoints) - 1):
+                try:
+                    # Vérifier que les deux points ont des classements valides
+                    if (checkpoints[i]['rank'] is not None and
+                            checkpoints[i + 1]['rank'] is not None and
+                            checkpoints[i]['rank'] != "" and
+                            checkpoints[i + 1]['rank'] != ""):
+
+                        rank1 = int(checkpoints[i]['rank'])
+                        rank2 = int(checkpoints[i + 1]['rank'])
+                        progression = rank1 - rank2  # Valeur positive = amélioration
+
+                        if progression > 0:  # Ne garder que les progressions positives
+                            section_progressions.append({
+                                'progression': progression,
+                                'bib': bib,
+                                'name': data['infos']['name'],
+                                'race': data['infos']['race_name'],
+                                'section': f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}",
+                                'ranks': f"{rank1} → {rank2}"
+                            })
+                except (ValueError, TypeError) as e:
+                    continue
+
+        # Trier par progression décroissante
+        section_progressions.sort(key=lambda x: x['progression'], reverse=True)
+
+        # Convertir en format de données attendu
+        formatted_data = []
+        for i, prog in enumerate(section_progressions[:20]):
+            formatted_data.append([
+                i + 1,  # Position
+                prog['bib'],  # Dossard
+                prog['name'],  # Nom
+                prog['race'],  # Course
+                prog['section'],  # Section
+                f"+{prog['progression']}",  # Progression
+                prog['ranks']  # Classements
+            ])
+
+        return formatted_data
 
     def export_progression_analysis(self, export_dir, selected_race):
-        """Exporter les analyses de progression pour une course spécifique"""
         try:
             # Progression globale
-            data = self.get_progression_global_data()
+            raw_data = self.get_progression_global_data(selected_race)
+
+            # Convertir les données du format dictionnaire en liste
+            formatted_data = [
+                [
+                    i + 1,  # Position
+                    prog['bib'],  # Dossard
+                    prog['name'],  # Nom
+                    prog['race'],  # Course
+                    prog['start_pos'],  # Position de départ
+                    prog['end_pos'],  # Position finale
+                    f"+{prog['progression']}" if prog['progression'] > 0 else str(prog['progression'])  # Progression
+                ]
+                for i, prog in enumerate(raw_data)
+            ]
+
             html = self.create_analysis_table_html(
                 "Progression globale",
                 ["Position", "Dossard", "Nom", "Course", "Pos. départ", "Pos. finale", "Progression"],
-                data,
+                formatted_data,
                 selected_race
             )
             filename = f"progression_globale{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
             with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
                 f.write(html)
+            print(f"Successfully exported progression_globale for {selected_race}")
 
-            # Progression sections
-            data = self.get_progression_sections_data()
-            html = self.create_analysis_table_html(
-                "Progression entre points",
-                ["Position", "Dossard", "Nom", "Course", "Section", "Progression", "Classements"],
-                data,
-                selected_race
-            )
-            filename = f"progression_sections{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
-            with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
-                f.write(html)
+            # Export de la progression par sections
+            section_data = self.get_progression_sections_data(selected_race)
+            if section_data:  # Vérifier que nous avons des données
+                section_html = self.create_analysis_table_html(
+                    "Progression entre points",
+                    ["Position", "Dossard", "Nom", "Course", "Section", "Progression", "Classements"],
+                    section_data,
+                    selected_race
+                )
+                section_filename = f"progression_sections{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
+                with open(os.path.join(export_dir, section_filename), "w", encoding="utf-8") as f:
+                    f.write(section_html)
+                print(f"Successfully exported progression_sections for {selected_race}")
 
         except Exception as e:
-            print(f"Erreur lors de l'export de l'analyse de progression: {str(e)}")
+            print(f"Error during export of progression analysis: {str(e)}")
             traceback.print_exc()
 
     def export_elevation_analysis(self, export_dir, selected_race):
-        """Exporter les analyses de dénivelé pour une course spécifique"""
         try:
             # Grimpeurs
-            data = self.get_climbers_data()
+            data = self.get_climbers_data(selected_race)
             html = self.create_analysis_table_html(
                 "Top Grimpeurs",
                 ["Position", "Dossard", "Nom", "Course", "D+ total", "Temps", "Vitesse", "Pente moy.", "Tendance"],
@@ -3383,9 +3440,10 @@ class TopAnalysisWindow:
             filename = f"grimpeurs{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
             with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
                 f.write(html)
+            print(f"Successfully exported grimpeurs for {selected_race}")
 
             # Descendeurs
-            data = self.get_descenders_data()
+            data = self.get_descenders_data(selected_race)
             html = self.create_analysis_table_html(
                 "Top Descendeurs",
                 ["Position", "Dossard", "Nom", "Course", "D- total", "Temps", "Vitesse", "Pente moy.", "Tendance"],
@@ -3395,16 +3453,15 @@ class TopAnalysisWindow:
             filename = f"descendeurs{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
             with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
                 f.write(html)
-
+            print(f"Successfully exported descendeurs for {selected_race}")
         except Exception as e:
-            print(f"Erreur lors de l'export de l'analyse des dénivelés: {str(e)}")
+            print(f"Error during export of elevation analysis: {str(e)}")
             traceback.print_exc()
 
     def export_speed_analysis(self, export_dir, selected_race):
-        """Exporter les analyses de vitesse pour une course spécifique"""
         try:
             # Vitesse moyenne
-            data = self.get_speed_avg_data()
+            data = self.get_speed_avg_data(selected_race)
             html = self.create_analysis_table_html(
                 "Vitesse moyenne",
                 ["Position", "Dossard", "Nom", "Course", "Vitesse moyenne"],
@@ -3414,9 +3471,10 @@ class TopAnalysisWindow:
             filename = f"vitesse_moyenne{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
             with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
                 f.write(html)
+            print(f"Successfully exported vitesse_moyenne for {selected_race}")
 
             # Vitesse effort
-            data = self.get_speed_effort_data()
+            data = self.get_speed_effort_data(selected_race)
             html = self.create_analysis_table_html(
                 "Vitesse effort",
                 ["Position", "Dossard", "Nom", "Course", "Vitesse effort"],
@@ -3426,9 +3484,10 @@ class TopAnalysisWindow:
             filename = f"vitesse_effort{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
             with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
                 f.write(html)
+            print(f"Successfully exported vitesse_effort for {selected_race}")
 
-            # Vitesse par sections
-            data = self.get_speed_sections_data()
+            # Vitesse par section
+            data = self.get_speed_sections_data(selected_race)
             html = self.create_analysis_table_html(
                 "Vitesse par section",
                 ["Position", "Dossard", "Nom", "Course", "Section", "Distance", "Vitesse"],
@@ -3438,10 +3497,11 @@ class TopAnalysisWindow:
             filename = f"vitesse_sections{'_' + selected_race.lower().replace(' ', '_') if selected_race != 'Toutes les courses' else ''}.html"
             with open(os.path.join(export_dir, filename), "w", encoding="utf-8") as f:
                 f.write(html)
-
+            print(f"Successfully exported vitesse_sections for {selected_race}")
         except Exception as e:
-            print(f"Erreur lors de l'export de l'analyse des vitesses: {str(e)}")
+            print(f"Error during export of speed analysis: {str(e)}")
             traceback.print_exc()
+
 
     def export_section_analysis(self, export_dir):
         """Exporter l'analyse des sections"""
@@ -3602,6 +3662,33 @@ class TopAnalysisWindow:
             traceback.print_exc()
 
     def create_analysis_table_html(self, title, headers, data, selected_race):
+        """Créer la page HTML d'analyse avec navigation et filtrage corrects"""
+        # Récupérer la liste complète des courses
+        courses = self.get_unique_races()
+
+        # Fonction pour générer les liens
+        def get_page_link(base_name, course):
+            if course == "Toutes les courses":
+                return f"{base_name}.html"
+            return f"{base_name}_{course.lower().replace(' ', '_')}.html"
+
+        # Structure de navigation
+        nav_pages = {
+            "Progression": [
+                ("progression_globale", "Progression globale"),
+                ("progression_sections", "Progression entre points")
+            ],
+            "Dénivelés": [
+                ("grimpeurs", "Top Grimpeurs"),
+                ("descendeurs", "Top Descendeurs")
+            ],
+            "Vitesses": [
+                ("vitesse_moyenne", "Vitesse moyenne"),
+                ("vitesse_effort", "Vitesse effort"),
+                ("vitesse_sections", "Vitesse par section")
+            ]
+        }
+
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -3611,56 +3698,193 @@ class TopAnalysisWindow:
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
             <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
             <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+            <script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
             <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css">
             <style>
-                body {{ padding: 20px; }}
+                .progression-positive {{ color: green; }}
+                .progression-negative {{ color: red; }}
+                .sticky-controls {{
+                    position: sticky;
+                    top: 0;
+                    background: white;
+                    padding: 1rem 0;
+                    z-index: 1000;
+                    border-bottom: 1px solid #dee2e6;
+                }}
+                .nav-section {{
+                    border-bottom: 1px solid #dee2e6;
+                    margin-bottom: 1rem;
+                }}
+                .nav-section a {{
+                    color: #6c757d;
+                    text-decoration: none;
+                    padding: 0.5rem 1rem;
+                    display: inline-block;
+                }}
+                .nav-section a:hover {{
+                    color: #0d6efd;
+                }}
+                .nav-section .active {{
+                    color: #0d6efd;
+                    border-bottom: 2px solid #0d6efd;
+                }}
             </style>
         </head>
         <body>
-            <div class="container">
-                <h2>{title}</h2>
-                <div class="mb-3">
-                    <a href="index.html" class="btn btn-secondary">← Retour au menu</a>
+            <div class="container-fluid">
+                <div class="sticky-controls">
+                    <div class="row align-items-center">
+                        <div class="col-auto">
+                            <a href="index.html" class="btn btn-secondary">← Retour au menu</a>
+                        </div>
+                        <div class="col">
+                            <h2 class="mb-0">{title}</h2>
+                        </div>
+                        <div class="col-auto">
+                            <select id="courseSelect" class="form-select" onchange="changeCourse(this.value)">
+        """
+
+        # Générer les options du sélecteur
+        for course in courses:
+            selected = "selected" if course == selected_race else ""
+            html += f'<option value="{course}" {selected}>{course}</option>'
+
+        html += """
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="mb-3">
-                    <label for="courseSelect" class="form-label">Sélectionner une course:</label>
-                    <select id="courseSelect" class="form-select" style="width: auto;">
-                        <option value="all">Toutes les courses</option>
-                        {self.get_course_options()}
-                    </select>
+                <div class="nav-section">
+                    <div class="container-fluid">
+                        <div class="row">
+        """
+
+        # Générer la navigation
+        for section_title, pages in nav_pages.items():
+            html += f"""
+                            <div class="col">
+                                <h4>{section_title}</h4>
+            """
+            for page_id, page_name in pages:
+                is_active = page_id in title.lower()
+                link = get_page_link(page_id, selected_race)
+                html += f'<a href="{link}" class="{"active" if is_active else ""}">{page_name}</a>'
+            html += """
+                            </div>
+            """
+
+        html += """
+                        </div>
+                    </div>
                 </div>
 
-                <div class="table-responsive">
-                    <table id="analysisTable" class="table table-striped">
-                        <thead>
-                            <tr>{" ".join(f"<th>{header}</th>" for header in headers)}</tr>
-                        </thead>
-                        <tbody id="tableBody">
-                            {"".join(f"<tr>{"".join(f"<td>{value}</td>" for value in row)}</tr>" for row in data)}
-                        </tbody>
-                    </table>
-                </div>
+                <table id="analysisTable" class="table table-striped">
+                    <thead>
+                        <tr>
+        """
+
+        # Ajouter les en-têtes du tableau
+        for header in headers:
+            html += f"<th>{header}</th>"
+
+        html += """
+                        </tr>
+                    </thead>
+                    <tbody>
+        """
+
+        # Ajouter les données du tableau
+        for row in data:
+            html += "<tr>"
+            for cell in row:
+                html += f"<td>{cell}</td>"
+            html += "</tr>"
+
+        html += """
+                    </tbody>
+                </table>
             </div>
-
             <script>
-                $(document).ready(function() {{
-                    var table = $('#analysisTable').DataTable({{
-                        "pageLength": 50,
-                        "language": {{
-                            "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
-                        }}
-                    }});
+                function changeCourse(course) {
+                    const currentPath = window.location.pathname;
+                    const basePath = currentPath.split('/').slice(0, -1).join('/');
+                    const currentFile = currentPath.split('/').pop();
 
-                    $('#courseSelect').change(function() {{
-                        var selectedCourse = $(this).val();
-                        table.column(3).search(selectedCourse === 'all' ? '' : selectedCourse, true, false).draw();
-                    }});
-                }});
+                    const pageTypes = {
+                        'vitesse_moyenne': 'vitesse_moyenne',
+                        'vitesse_effort': 'vitesse_effort',
+                        'vitesse_sections': 'vitesse_sections',
+                        'progression_globale': 'progression_globale',
+                        'progression_sections': 'progression_sections',
+                        'grimpeurs': 'grimpeurs',
+                        'descendeurs': 'descendeurs'
+                    };
+
+                    let pageType = '';
+                    for (const type in pageTypes) {
+                        if (currentFile.startsWith(type)) {
+                            pageType = type;
+                            break;
+                        }
+                    }
+
+                    if (!pageType) {
+                        console.error('Type de page non reconnu:', currentFile);
+                        return;
+                    }
+
+                    let newPage;
+                    if (course === "Toutes les courses") {
+                        newPage = `${pageType}.html`;
+                    } else {
+                        const normalizedCourse = course.toLowerCase()
+                            .replace(/ /g, '_')
+                            .normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '');
+                        newPage = `${pageType}_${normalizedCourse}.html`;
+                    }
+
+                    window.location.href = `${basePath}/${newPage}`;
+                }
+
+                $(document).ready(function() {
+                    const table = $('#analysisTable').DataTable({
+                        "pageLength": 20,
+                        "lengthMenu": [20],
+                        "language": {
+                            "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
+                        },
+                        "order": [[0, "asc"]],
+                        "dom": 'rt<"bottom"ip>'
+                    });
+                });
             </script>
         </body>
         </html>
         """
+
+        return html
+
+    def format_data_row(self, row):
+        """Formater une ligne de données pour l'affichage HTML"""
+        html = "<tr>"
+        for value in row:
+            # Formatter les progressions avec des couleurs
+            if isinstance(value, (int, float)) and "++" not in str(value):
+                try:
+                    num_value = float(str(value).replace('+', ''))
+                    if num_value > 0:
+                        html += f'<td class="progression-positive">+{value}</td>'
+                    elif num_value < 0:
+                        html += f'<td class="progression-negative">{value}</td>'
+                    else:
+                        html += f"<td>{value}</td>"
+                except ValueError:
+                    html += f"<td>{value}</td>"
+            else:
+                html += f"<td>{value}</td>"
+        html += "</tr>"
         return html
 
     def get_course_options(self):
@@ -3706,181 +3930,325 @@ class TopAnalysisWindow:
             """
         return tables
 
-
-    def get_climbers_data(self):
-        """Récupérer les données du tableau des grimpeurs"""
+    def calculate_climbing_speed(self, elevation_gain, time_str, distance):
+        """
+        Calcule la vitesse verticale en montée
+        Args:
+            elevation_gain: dénivelé en mètres
+            time_str: temps au format HH:MM:SS
+            distance: distance horizontale en km
+        Returns:
+            tuple: (vitesse verticale en m/h, pente moyenne en %)
+        """
         try:
-            data = []
-            # Trouver le tableau dans le frame des grimpeurs
-            for widget in self.climbers_scroll.winfo_children():
-                if isinstance(widget, ttk.Treeview):
-                    # Pour chaque ligne du tableau
-                    for item in widget.get_children():
-                        # Récupérer les valeurs de la ligne
-                        values = widget.item(item)['values']
-                        if values:
-                            data.append([
-                                values[0],  # Position
-                                values[1],  # Dossard
-                                values[2],  # Nom
-                                values[3],  # Course
-                                values[4],  # D+ total
-                                values[5],  # Temps
-                                values[6],  # Vitesse
-                                values[7],  # Pente moyenne
-                                values[8]  # Tendance
-                            ])
-                    break
+            # Convertir le temps HH:MM:SS en heures
+            h, m, s = map(int, time_str.split(':'))
+            time_hours = h + m / 60 + s / 3600
 
-            if not data:
-                print("Aucune donnée trouvée dans le tableau des grimpeurs")
-                widgets = [str(type(w)) for w in self.climbers_scroll.winfo_children()]
-                print(f"Widgets trouvés: {widgets}")
+            if time_hours == 0:
+                return 0, 0
 
-            return data
+            # Calcul de la vitesse verticale
+            vertical_speed = elevation_gain / time_hours  # m/h
+
+            # Calcul de la pente moyenne
+            distance_m = distance * 1000  # conversion km en m
+            if distance_m > 0:
+                slope_percentage = (elevation_gain / distance_m) * 100
+            else:
+                slope_percentage = 0
+
+            return vertical_speed, slope_percentage
 
         except Exception as e:
-            print(f"Erreur lors de la récupération des données des grimpeurs: {str(e)}")
-            traceback.print_exc()
-            return []
+            print(f"Erreur dans le calcul de vitesse verticale: {str(e)}")
+            return 0, 0
 
-    def get_descenders_data(self):
-        """Récupérer les données du tableau des descendeurs"""
-        try:
-            data = []
-            # Trouver le tableau dans le frame des descendeurs
-            for widget in self.descenders_scroll.winfo_children():
-                if isinstance(widget, ttk.Treeview):
-                    # Pour chaque ligne du tableau
-                    for item in widget.get_children():
-                        # Récupérer les valeurs de la ligne
-                        values = widget.item(item)['values']
-                        if values:
-                            data.append([
-                                values[0],  # Position
-                                values[1],  # Dossard
-                                values[2],  # Nom
-                                values[3],  # Course
-                                values[4],  # D- total
-                                values[5],  # Temps
-                                values[6],  # Vitesse
-                                values[7],  # Pente moyenne
-                                values[8]  # Tendance
-                            ])
-                    break
+    def get_climbers_data(self, selected_race="Toutes les courses"):
+        """Version corrigée de l'analyse des grimpeurs"""
+        climbers = []
 
-            if not data:
-                print("Aucune donnée trouvée dans le tableau des descendeurs")
-                widgets = [str(type(w)) for w in self.descenders_scroll.winfo_children()]
-                print(f"Widgets trouvés: {widgets}")
+        for bib in self.bibs:
+            if str(bib) not in self.scraper.all_data:
+                continue
 
-            return data
+            data = self.scraper.all_data[str(bib)]
+            if selected_race != "Toutes les courses" and data['infos']['race_name'] != selected_race:
+                continue
 
-        except Exception as e:
-            print(f"Erreur lors de la récupération des données des descendeurs: {str(e)}")
-            traceback.print_exc()
-            return []
+            checkpoints = data['checkpoints']
 
-    def get_speed_avg_data(self):
-        """Récupérer les données du tableau des vitesses moyennes"""
-        try:
-            data = []
-            # Trouver le tableau dans le frame des vitesses moyennes
-            for widget in self.speed_avg_scroll.winfo_children():
-                if isinstance(widget, ttk.Treeview):
-                    # Pour chaque ligne du tableau
-                    for item in widget.get_children():
-                        # Récupérer les valeurs de la ligne
-                        values = widget.item(item)['values']
-                        if values:
-                            data.append([
-                                values[0],  # Position
-                                values[1],  # Dossard
-                                values[2],  # Nom
-                                values[3],  # Course
-                                values[4]  # Vitesse moyenne
-                            ])
-                    break
+            for i in range(len(checkpoints) - 1):
+                if checkpoints[i + 1]['elevation_gain'] > 100:  # On regarde le D+ du point suivant
+                    try:
+                        # Le D+ est celui du point d'arrivée
+                        elevation_gain = checkpoints[i + 1]['elevation_gain']
 
-            if not data:
-                print("Aucune donnée trouvée dans le tableau des vitesses moyennes")
-                widgets = [str(type(w)) for w in self.speed_avg_scroll.winfo_children()]
-                print(f"Widgets trouvés: {widgets}")
+                        # Le temps est calculé entre les deux points
+                        section_time = self.time_diff(
+                            checkpoints[i + 1]['race_time'],
+                            checkpoints[i]['race_time']
+                        )
 
-            return data
+                        if not section_time:
+                            continue
 
-        except Exception as e:
-            print(f"Erreur lors de la récupération des données des vitesses moyennes: {str(e)}")
-            traceback.print_exc()
-            return []
+                        # Distance entre les deux points
+                        distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
 
-    def get_speed_effort_data(self):
-        """Récupérer les données du tableau des vitesses effort"""
-        try:
-            data = []
-            # Trouver le tableau dans le frame des vitesses effort
-            for widget in self.speed_effort_scroll.winfo_children():
-                if isinstance(widget, ttk.Treeview):
-                    # Pour chaque ligne du tableau
-                    for item in widget.get_children():
-                        # Récupérer les valeurs de la ligne
-                        values = widget.item(item)['values']
-                        if values:
-                            data.append([
-                                values[0],  # Position
-                                values[1],  # Dossard
-                                values[2],  # Nom
-                                values[3],  # Course
-                                values[4]  # Vitesse effort
-                            ])
-                    break
+                        # Calcul du temps en heures pour la vitesse
+                        h, m, s = map(int, section_time.split(':'))
+                        time_hours = h + m / 60 + s / 3600
 
-            if not data:
-                print("Aucune donnée trouvée dans le tableau des vitesses effort")
-                widgets = [str(type(w)) for w in self.speed_effort_scroll.winfo_children()]
-                print(f"Widgets trouvés: {widgets}")
+                        if time_hours > 0:
+                            # Vitesse verticale en m/h
+                            vertical_speed = elevation_gain / time_hours
 
-            return data
+                            # Pente moyenne en %
+                            slope_percentage = (elevation_gain / (distance * 1000)) * 100 if distance > 0 else 0
 
-        except Exception as e:
-            print(f"Erreur lors de la récupération des données des vitesses effort: {str(e)}")
-            traceback.print_exc()
-            return []
+                            section_name = f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}"
 
-    def get_speed_sections_data(self):
-        """Récupérer les données du tableau des vitesses par section"""
-        try:
-            data = []
-            # Trouver le tableau dans le frame des vitesses par section
-            for widget in self.speed_sections_scroll.winfo_children():
-                if isinstance(widget, ttk.Treeview):
-                    # Pour chaque ligne du tableau
-                    for item in widget.get_children():
-                        # Récupérer les valeurs de la ligne
-                        values = widget.item(item)['values']
-                        if values:
-                            data.append([
-                                values[0],  # Position
-                                values[1],  # Dossard
-                                values[2],  # Nom
-                                values[3],  # Course
-                                values[4],  # Section
-                                values[5],  # Distance
-                                values[6]  # Vitesse
-                            ])
-                    break
+                            climbers.append({
+                                'bib': bib,
+                                'name': data['infos']['name'],
+                                'race': data['infos']['race_name'],
+                                'elevation_gain': elevation_gain,
+                                'time_hours': time_hours,
+                                'time': section_time,
+                                'speed': vertical_speed,
+                                'slope': slope_percentage,
+                                'section': section_name,
+                                'distance': distance
+                            })
 
-            if not data:
-                print("Aucune donnée trouvée dans le tableau des vitesses par section")
-                widgets = [str(type(w)) for w in self.speed_sections_scroll.winfo_children()]
-                print(f"Widgets trouvés: {widgets}")
+                    except Exception as e:
+                        print(f"Erreur calcul grimpeur dossard {bib}: {str(e)}")
+                        continue
 
-            return data
+        # Trier par vitesse verticale
+        climbers.sort(key=lambda x: x['speed'], reverse=True)
 
-        except Exception as e:
-            print(f"Erreur lors de la récupération des données des vitesses par section: {str(e)}")
-            traceback.print_exc()
-            return []
+        # Formater les données pour l'affichage
+        formatted_data = []
+        for i, climb in enumerate(climbers[:20]):
+            formatted_data.append([
+                i + 1,
+                climb['bib'],
+                climb['name'],
+                climb['race'],
+                f"{climb['elevation_gain']}m",
+                climb['time'],
+                f"{climb['speed']:.1f} m/h",
+                f"{climb['slope']:.1f}%",
+                f"{climb['section']}"
+            ])
+
+        return formatted_data
+
+    def get_descenders_data(self, selected_race="Toutes les courses"):
+        """Version corrigée de l'analyse des descendeurs"""
+        descenders = []
+
+        for bib in self.bibs:
+            if str(bib) not in self.scraper.all_data:
+                continue
+
+            data = self.scraper.all_data[str(bib)]
+            if selected_race != "Toutes les courses" and data['infos']['race_name'] != selected_race:
+                continue
+
+            checkpoints = data['checkpoints']
+
+            for i in range(len(checkpoints) - 1):
+                if checkpoints[i + 1]['elevation_loss'] > 100:  # On regarde le D- du point suivant
+                    try:
+                        # Le D- est celui du point d'arrivée
+                        elevation_loss = checkpoints[i + 1]['elevation_loss']
+
+                        # Le temps est calculé entre les deux points
+                        section_time = self.time_diff(
+                            checkpoints[i + 1]['race_time'],
+                            checkpoints[i]['race_time']
+                        )
+
+                        if not section_time:
+                            continue
+
+                        # Distance entre les deux points
+                        distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+
+                        # Calcul du temps en heures pour la vitesse
+                        h, m, s = map(int, section_time.split(':'))
+                        time_hours = h + m / 60 + s / 3600
+
+                        if time_hours > 0:
+                            # Vitesse verticale en m/h
+                            vertical_speed = elevation_loss / time_hours
+
+                            # Pente moyenne en %
+                            slope_percentage = (elevation_loss / (distance * 1000)) * 100 if distance > 0 else 0
+
+                            section_name = f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}"
+
+                            descenders.append({
+                                'bib': bib,
+                                'name': data['infos']['name'],
+                                'race': data['infos']['race_name'],
+                                'elevation_loss': elevation_loss,
+                                'time_hours': time_hours,
+                                'time': section_time,
+                                'speed': vertical_speed,
+                                'slope': slope_percentage,
+                                'section': section_name,
+                                'distance': distance
+                            })
+
+                    except Exception as e:
+                        print(f"Erreur calcul descendeur dossard {bib}: {str(e)}")
+                        continue
+
+        # Trier par vitesse verticale
+        descenders.sort(key=lambda x: x['speed'], reverse=True)
+
+        # Formater les données pour l'affichage
+        formatted_data = []
+        for i, desc in enumerate(descenders[:20]):
+            formatted_data.append([
+                i + 1,
+                desc['bib'],
+                desc['name'],
+                desc['race'],
+                f"{desc['elevation_loss']}m",
+                desc['time'],
+                f"{desc['speed']:.1f} m/h",
+                f"{desc['slope']:.1f}%",
+                f"{desc['section']}"
+            ])
+
+        return formatted_data
+
+    def get_speed_avg_data(self, selected_race="Toutes les courses"):
+        """Récupérer les données des vitesses moyennes en recalculant depuis les données brutes"""
+        speeds = []
+
+        for bib in self.bibs:
+            if str(bib) in self.scraper.all_data:
+                data = self.scraper.all_data[str(bib)]
+                if selected_race == "Toutes les courses" or data['infos']['race_name'] == selected_race:
+                    checkpoints = data['checkpoints']
+
+                    # Calculer la moyenne des vitesses pour ce coureur
+                    valid_speeds = []
+                    for cp in checkpoints:
+                        try:
+                            speed = float(cp['speed'].replace('km/h', '').strip())
+                            valid_speeds.append(speed)
+                        except:
+                            continue
+
+                    if valid_speeds:
+                        avg_speed = sum(valid_speeds) / len(valid_speeds)
+                        speeds.append({
+                            'speed': avg_speed,
+                            'bib': bib,
+                            'name': data['infos']['name'],
+                            'race': data['infos']['race_name']
+                        })
+
+        # Trier par vitesse décroissante
+        speeds.sort(key=lambda x: x['speed'], reverse=True)
+
+        # Formater pour l'affichage
+        return [
+            [i + 1, item['bib'], item['name'], item['race'], f"{item['speed']:.1f} km/h"]
+            for i, item in enumerate(speeds[:20])
+        ]
+
+    def get_speed_effort_data(self, selected_race="Toutes les courses"):
+        """Récupérer les données des vitesses effort en recalculant depuis les données brutes"""
+        efforts = []
+
+        for bib in self.bibs:
+            if str(bib) in self.scraper.all_data:
+                data = self.scraper.all_data[str(bib)]
+                if selected_race == "Toutes les courses" or data['infos']['race_name'] == selected_race:
+                    checkpoints = data['checkpoints']
+
+                    valid_efforts = []
+                    for cp in checkpoints:
+                        try:
+                            effort = float(cp['effort_speed'].replace('km/h', '').strip())
+                            valid_efforts.append(effort)
+                        except:
+                            continue
+
+                    if valid_efforts:
+                        avg_effort = sum(valid_efforts) / len(valid_efforts)
+                        efforts.append({
+                            'effort': avg_effort,
+                            'bib': bib,
+                            'name': data['infos']['name'],
+                            'race': data['infos']['race_name']
+                        })
+
+        # Trier par vitesse effort décroissante
+        efforts.sort(key=lambda x: x['effort'], reverse=True)
+
+        # Formater pour l'affichage
+        return [
+            [i + 1, item['bib'], item['name'], item['race'], f"{item['effort']:.1f} km/h"]
+            for i, item in enumerate(efforts[:20])
+        ]
+
+    def get_speed_sections_data(self, selected_race="Toutes les courses"):
+        """Récupérer les données des vitesses par section en recalculant depuis les données brutes"""
+        section_speeds = []
+
+        for bib in self.bibs:
+            if str(bib) in self.scraper.all_data:
+                data = self.scraper.all_data[str(bib)]
+                if selected_race == "Toutes les courses" or data['infos']['race_name'] == selected_race:
+                    checkpoints = data['checkpoints']
+
+                    for i in range(len(checkpoints) - 1):
+                        try:
+                            section_time = self.time_diff(
+                                checkpoints[i + 1]['race_time'],
+                                checkpoints[i]['race_time']
+                            )
+
+                            if section_time:
+                                h, m, s = map(int, section_time.split(':'))
+                                hours = h + m / 60 + s / 3600
+                                distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+
+                                if hours > 0:
+                                    speed = distance / hours
+                                    section_speeds.append({
+                                        'speed': speed,
+                                        'bib': bib,
+                                        'name': data['infos']['name'],
+                                        'race': data['infos']['race_name'],
+                                        'from_point': checkpoints[i]['point'],
+                                        'to_point': checkpoints[i + 1]['point'],
+                                        'distance': distance
+                                    })
+                        except Exception as e:
+                            print(f"Erreur calcul vitesse section {i} pour dossard {bib}: {e}")
+                            continue
+
+        # Trier par vitesse décroissante
+        section_speeds.sort(key=lambda x: x['speed'], reverse=True)
+
+        # Formater pour l'affichage
+        return [
+            [i + 1, item['bib'], item['name'], item['race'],
+             f"{item['from_point']} → {item['to_point']}",
+             f"{item['distance']:.1f} km",
+             f"{item['speed']:.1f} km/h"]
+            for i, item in enumerate(section_speeds[:20])
+        ]
 
     def get_section_time_data(self):
         """Récupérer les données de temps pour la section sélectionnée"""
@@ -3951,224 +4319,120 @@ class TopAnalysisWindow:
             print(f"Erreur lors de la récupération des données de vitesse effort: {str(e)}")
             return []
 
-    def get_section_progression_data(self):
-        """Récupérer les données de progression pour la section sélectionnée"""
-        try:
-            data = []
-            for widget in self.section_results_scroll.winfo_children():
-                if isinstance(widget, ttk.Treeview) and widget.winfo_ismapped():
-                    for item in widget.get_children():
-                        values = widget.item(item)['values']
-                        if values and len(values) >= 6:
-                            data.append([
-                                values[0],  # Position
-                                values[1],  # Dossard
-                                values[2],  # Nom
-                                values[3],  # Course
-                                values[4],  # Progression
-                                values[5]  # Tendance
-                            ])
-                    break
-            return data
-        except Exception as e:
-            print(f"Erreur lors de la récupération des données de progression: {str(e)}")
-            return []
+    def get_section_progressions_data(self, selected_race="Toutes les courses"):
+        """Récupérer les données du tableau de progression par sections"""
+        section_progressions = []
+
+        for bib in self.bibs:
+            if str(bib) not in self.scraper.all_data:
+                continue
+
+            data = self.scraper.all_data[str(bib)]
+            if selected_race != "Toutes les courses" and data['infos']['race_name'] != selected_race:
+                continue
+
+            checkpoints = data['checkpoints']
+
+            # Parcourir tous les points consécutifs
+            for i in range(len(checkpoints) - 1):
+                if checkpoints[i]['rank'] and checkpoints[i + 1]['rank']:
+                    try:
+                        rank1 = int(checkpoints[i]['rank'])
+                        rank2 = int(checkpoints[i + 1]['rank'])
+                        progression = rank1 - rank2
+
+                        # Ajouter seulement les progressions positives
+                        if progression > 0:
+                            section_progressions.append({
+                                'bib': bib,
+                                'name': data['infos']['name'],
+                                'race': data['infos']['race_name'],
+                                'section': f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}",
+                                'progression': progression,
+                                'ranks': f"{rank1} → {rank2}"
+                            })
+                    except (ValueError, TypeError):
+                        continue
+
+        # Trier par progression
+        section_progressions.sort(key=lambda x: x['progression'], reverse=True)
+        return section_progressions[:20]
 
     def create_section_analysis_html(self):
-        """Créer le HTML pour l'analyse de toutes les sections"""
-        selected_race = self.race_selector.get()
-
-        # Récupérer la liste des courses disponibles
-        courses = ["Toutes les courses"] + sorted(list(set(
-            data['infos']['race_name']
-            for bib in self.bibs
-            if str(bib) in self.scraper.all_data
-            for data in [self.scraper.all_data[str(bib)]]
-        )))
-
+        """Créer le HTML pour l'analyse des sections avec navigation améliorée"""
         html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Analyse des sections</title>
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
-            <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-            <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
-            <script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
-            <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css">
-            <style>
-                .section-card {
-                    background-color: white;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    margin-bottom: 30px;
-                    padding: 20px;
-                }
-                .section-info {
-                    background-color: #f8f9fa;
-                    border-radius: 8px;
-                    padding: 15px;
-                    margin-bottom: 20px;
-                }
-                .positive-evolution { color: #28a745; }
-                .negative-evolution { color: #dc3545; }
-                .neutral-evolution { color: #6c757d; }
-                body { 
-                    background-color: #f8f9fa;
-                    padding: 20px;
-                }
-                .table thead th {
-                    background-color: #f8f9fa;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container-fluid">
-                <h2 class="mb-4">Analyse des sections</h2>
-                <a href="index.html" class="btn btn-secondary mb-4">← Retour au menu</a>
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Analyse des sections</title>
+                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+                <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+                <style>
+                    .section-card { transition: all 0.3s ease; }
+                    .section-card:hover { transform: translateY(-2px); }
 
-                <div class="card mb-4">
-                    <div class="card-body">
-                        <div class="row align-items-center">
-                            <div class="col-auto">
-                                <label for="courseSelect" class="form-label mb-0"><strong>Sélectionner une course :</strong></label>
-                            </div>
-                            <div class="col-auto">
-                                <select id="courseSelect" class="form-select" style="width: auto;">
-        """
+                    .performance-table {
+                        width: 100%;
+                        margin: 1rem 0;
+                    }
 
-        # Ajouter les options de courses
-        for course in courses:
-            html += f'<option value="{course}"{" selected" if course == selected_race else ""}>{course}</option>'
+                    .nav-pills { margin-bottom: 2rem; }
 
-        html += """
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="sectionsContainer">
-                    <div class="accordion" id="sectionsAccordion">
-        """
-
-        # Parcourir toutes les sections disponibles
-        for i, (section_name, section_info) in enumerate(self.sections_info.items(), 1):
-            # Créer un ID unique pour l'accordéon
-            section_id = f"section_{i}"
-
-            html += f"""
-                <div class="accordion-item mb-3">
-                    <h2 class="accordion-header" id="heading_{section_id}">
-                        <button class="accordion-button collapsed" type="button" 
-                                data-bs-toggle="collapse" data-bs-target="#collapse_{section_id}" 
-                                aria-expanded="false" aria-controls="collapse_{section_id}">
-                            <strong>{section_name}</strong>
-                        </button>
-                    </h2>
-                    <div id="collapse_{section_id}" class="accordion-collapse collapse"
-                         aria-labelledby="heading_{section_id}">
-                        <div class="accordion-body">
-                            <div class="section-info">
-                                <div class="row">
-                                    <div class="col-md-4">
-                                        <p><strong>Distance :</strong> {section_info['distance']:.1f} km</p>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <p><strong>D+ :</strong> {section_info['elevation_gain']} m</p>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <p><strong>D- :</strong> {section_info['elevation_loss']} m</p>
-                                    </div>
+                    @media print {
+                        .no-print { display: none; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container-fluid p-4">
+                    <div class="row">
+                        <div class="col">
+                            <nav class="navbar navbar-expand-lg no-print">
+                                <div class="container-fluid">
+                                    <select id="courseFilter" class="form-select me-2">
+                                        <!-- Options de courses -->
+                                    </select>
+                                    <button class="btn btn-outline-secondary" onclick="window.print()">
+                                        Imprimer
+                                    </button>
                                 </div>
-                            </div>
-            """
-
-            # Récupérer les performances pour cette section
-            performances = self.get_section_performances(section_name, selected_race)
-
-            if performances:
-                # TOP temps
-                if performances['times']:
-                    html += self.create_section_table_html(
-                        "Top temps",
-                        ["Position", "Dossard", "Nom", "Course", "Temps", "Vitesse"],
-                        performances['times'],
-                        f"time_{section_id}"
-                    )
-
-                # TOP progression
-                if performances['progressions']:
-                    html += self.create_section_table_html(
-                        "Top progressions",
-                        ["Position", "Dossard", "Nom", "Course", "Progression", "Évolution"],
-                        performances['progressions'],
-                        f"prog_{section_id}"
-                    )
-
-                # TOP vitesse
-                if performances['speeds']:
-                    html += self.create_section_table_html(
-                        "Top vitesses",
-                        ["Position", "Dossard", "Nom", "Course", "Vitesse", "Vitesse effort"],
-                        performances['speeds'],
-                        f"speed_{section_id}"
-                    )
-            else:
-                html += """
-                    <div class="alert alert-info">
-                        Aucune donnée disponible pour cette section avec les filtres actuels.
-                    </div>
-                """
-
-            html += """
+                            </nav>
                         </div>
                     </div>
-                </div>
-            """
 
-        html += """
+                    <div class="section-container mt-4">
+                        <!-- Contenu des sections -->
                     </div>
                 </div>
-            </div>
-            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-            <script>
-                $(document).ready(function() {
-                    // Initialiser tous les datatables
-                    $('.datatable').DataTable({
-                        "pageLength": 20,
-                        "language": {
-                            "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
+
+                <script>
+                    // Amélioration de la navigation
+                    $(document).ready(function() {
+                        // Mémorisation du filtre
+                        $('#courseFilter').change(function() {
+                            localStorage.setItem('selectedCourse', $(this).val());
+                            filterSections();
+                        });
+
+                        // Restore du dernier filtre
+                        let lastFilter = localStorage.getItem('selectedCourse');
+                        if (lastFilter) {
+                            $('#courseFilter').val(lastFilter);
+                            filterSections();
                         }
                     });
 
-                    // Gestionnaire de changement de course
-                    $('#courseSelect').change(function() {
-                        const selectedCourse = $(this).val();
-                        // Stocker la sélection dans localStorage
-                        localStorage.setItem('selectedCourse', selectedCourse);
-                        // Recharger la page avec la nouvelle sélection
-                        const currentUrl = new URL(window.location.href);
-                        currentUrl.searchParams.set('course', selectedCourse);
-                        window.location.href = currentUrl.toString();
-                    });
-
-                    // Restaurer la sélection au chargement
-                    const savedCourse = localStorage.getItem('selectedCourse');
-                    if (savedCourse) {
-                        $('#courseSelect').val(savedCourse);
+                    function filterSections() {
+                        const course = $('#courseFilter').val();
+                        $('.section-card').each(function() {
+                            const sectionCourse = $(this).data('course');
+                            $(this).toggle(course === 'all' || sectionCourse === course);
+                        });
                     }
-
-                    // Ouvrir automatiquement le premier accordéon si des données sont présentes
-                    if($('.accordion-item').length > 0) {
-                        $('.accordion-button').first().removeClass('collapsed');
-                        $('.accordion-collapse').first().addClass('show');
-                    }
-                });
-            </script>
-        </body>
-        </html>
+                </script>
+            </body>
+            </html>
         """
         return html
 
@@ -4188,34 +4452,37 @@ class TopAnalysisWindow:
                         </tr>
                     </thead>
                     <tbody>
-                        {"".join(f"<tr>{"".join(f"<td>{value}</td>" for value in row)}</tr>" for row in data)}
+                        {"".join(self.format_data_row(row) for row in data)}
                     </tbody>
                 </table>
             </div>
 
             <script>
-                // Utiliser une fonction immédiatement invoquée pour éviter les conflits
                 (function() {{
-                    // Vérifier si la table a déjà été initialisée
                     if (!$.fn.DataTable.isDataTable('#{table_id}')) {{
-                        $('#{table_id}').DataTable({{
-                            "pageLength": 10,
+                        const table = $('#{table_id}').DataTable({{
+                            "pageLength": 20,
+                            "lengthMenu": [20],
                             "language": {{
                                 "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
                             }},
-                            // Désactiver le tri automatique
                             "order": [],
-                            // Configurer moins d'options dans le menu de pagination
-                            "lengthMenu": [10, 25, 50],
-                            // Simplifier l'interface
-                            "dom": '<"top"lf>rt<"bottom"ip><"clear">'
+                            "dom": 'frt<"bottom"ip>',
+                            "searching": true,
+                            "info": true,
+                            "paginate": true
+                        }});
+
+                        $('#courseSelect').change(function() {{
+                            const selectedCourse = $(this).val();
+                            table.column(3).search(selectedCourse === 'all' ? '' : selectedCourse, true, false).draw();
                         }});
                     }}
                 }})();
             </script>
         """
         return html
-    
+
     def get_section_performances(self, section_name, selected_race):
         """Récupérer toutes les performances pour une section donnée"""
         times = []
@@ -4223,81 +4490,84 @@ class TopAnalysisWindow:
         speeds = []
 
         try:
-            # Parcourir tous les coureurs
             for bib in self.bibs:
                 if str(bib) not in self.scraper.all_data:
                     continue
 
                 runner_data = self.scraper.all_data[str(bib)]
 
-                # Vérifier si le coureur est de la course sélectionnée
                 if selected_race != "Toutes les courses" and runner_data['infos']['race_name'] != selected_race:
                     continue
 
                 checkpoints = runner_data['checkpoints']
 
-                # Trouver la section dans les points de passage
                 for i in range(len(checkpoints) - 1):
                     current_section = f"{checkpoints[i]['point']} → {checkpoints[i + 1]['point']}"
                     if current_section == section_name:
                         try:
-                            # Extraire les performances
-                            time1 = datetime.strptime(checkpoints[i]['race_time'], "%H:%M:%S")
-                            time2 = datetime.strptime(checkpoints[i + 1]['race_time'], "%H:%M:%S")
-                            section_time = time2 - time1
+                            # Utiliser la nouvelle méthode de calcul de temps
+                            section_time = self.time_diff(checkpoints[i + 1]['race_time'],
+                                                          checkpoints[i]['race_time'])
 
-                            # Calcul de la vitesse
-                            hours = section_time.total_seconds() / 3600
-                            distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
-                            speed = distance / hours if hours > 0 else 0
+                            if section_time is None:
+                                continue
 
-                            # Calcul de la vitesse effort
-                            d_plus = checkpoints[i]['elevation_gain'] or 0
-                            d_minus = checkpoints[i]['elevation_loss'] or 0
-                            effort_distance = distance + (d_plus / 1000 * 10) + (d_minus / 1000 * 2)
-                            effort_speed = effort_distance / hours if hours > 0 else 0
+                            # Convertir le temps pour le calcul de vitesse
+                            h, m, s = map(int, section_time.split(':'))
+                            hours = h + m / 60 + s / 3600
 
-                            # Progression
-                            rank1 = int(checkpoints[i]['rank']) if checkpoints[i]['rank'] else 0
-                            rank2 = int(checkpoints[i + 1]['rank']) if checkpoints[i + 1]['rank'] else 0
-                            progression = rank1 - rank2 if rank1 and rank2 else 0
+                            # Calculer la vitesse si le temps est valide
+                            if hours > 0:
+                                distance = checkpoints[i + 1]['kilometer'] - checkpoints[i]['kilometer']
+                                speed = distance / hours
 
-                            # Ajouter aux listes
-                            times.append([
-                                len(times) + 1,
-                                bib,
-                                runner_data['infos']['name'],
-                                runner_data['infos']['race_name'],
-                                str(section_time).split('.')[0],
-                                f"{speed:.1f} km/h"
-                            ])
+                                # Calculer vitesse effort
+                                d_plus = checkpoints[i]['elevation_gain'] or 0
+                                d_minus = checkpoints[i]['elevation_loss'] or 0
+                                effort_distance = distance + (d_plus / 1000 * 10) + (d_minus / 1000 * 2)
+                                effort_speed = effort_distance / hours
 
-                            progressions.append([
-                                len(progressions) + 1,
-                                bib,
-                                runner_data['infos']['name'],
-                                runner_data['infos']['race_name'],
-                                progression,
-                                f"{rank1} → {rank2}"
-                            ])
+                                # Progression
+                                rank1 = int(checkpoints[i]['rank']) if checkpoints[i]['rank'] else 0
+                                rank2 = int(checkpoints[i + 1]['rank']) if checkpoints[i + 1]['rank'] else 0
+                                progression = rank1 - rank2 if rank1 and rank2 else 0
 
-                            speeds.append([
-                                len(speeds) + 1,
-                                bib,
-                                runner_data['infos']['name'],
-                                runner_data['infos']['race_name'],
-                                f"{speed:.1f} km/h",
-                                f"{effort_speed:.1f} km/h"
-                            ])
+                                # Ajouter aux listes
+                                times.append([
+                                    len(times) + 1,
+                                    bib,
+                                    runner_data['infos']['name'],
+                                    runner_data['infos']['race_name'],
+                                    section_time,
+                                    f"{speed:.1f} km/h"
+                                ])
+
+                                progressions.append([
+                                    len(progressions) + 1,
+                                    bib,
+                                    runner_data['infos']['name'],
+                                    runner_data['infos']['race_name'],
+                                    progression,
+                                    f"{rank1} → {rank2}"
+                                ])
+
+                                speeds.append([
+                                    len(speeds) + 1,
+                                    bib,
+                                    runner_data['infos']['name'],
+                                    runner_data['infos']['race_name'],
+                                    f"{speed:.1f} km/h",
+                                    f"{effort_speed:.1f} km/h"
+                                ])
 
                         except Exception as e:
                             print(f"Erreur lors du calcul des performances pour le dossard {bib}: {str(e)}")
                         break
 
             # Trier les listes
-            times.sort(key=lambda x: datetime.strptime(x[4], "%H:%M:%S"))
-            progressions.sort(key=lambda x: x[4], reverse=True)
-            speeds.sort(key=lambda x: float(x[4].split()[0]), reverse=True)
+            times.sort(key=lambda x: x[4])  # tri par temps
+            progressions.sort(key=lambda x: x[4], reverse=True)  # tri par progression
+            speeds.sort(key=lambda x: float(x[4].split()[0]), reverse=True)  # tri par vitesse
 
             # Limiter à TOP 20
             times = times[:20]
@@ -4321,7 +4591,6 @@ class TopAnalysisWindow:
         except Exception as e:
             print(f"Erreur lors de la récupération des performances de la section {section_name}: {str(e)}")
             return {'times': [], 'progressions': [], 'speeds': []}
-
 
 
 
