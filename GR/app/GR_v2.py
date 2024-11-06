@@ -44,12 +44,29 @@ class RaceDataScraper:
         self.driver = None
         self.all_data = {}
         self.load_data()
+        pass
+
+    @staticmethod
+    def normalize_string(text):
+        """
+        Normalise une chaîne de caractères en supprimant les accents et caractères spéciaux.
+
+        Args:
+            text (str): Texte à normaliser
+
+        Returns:
+            str: Texte normalisé sans accents
+        """
+        import unicodedata
+        # Décomposer les caractères accentués
+        normalized = unicodedata.normalize('NFKD', text)
+        # Garder uniquement les caractères ASCII
+        normalized = normalized.encode('ASCII', 'ignore').decode('ASCII')
+        return normalized
 
     def get_race_from_url(self, driver):
         """Récupère le code de la course depuis l'URL"""
         try:
-            # Attendre que l'URL soit mise à jour avec le raceId avec un timeout plus court
-            # time.sleep(1)
             current_url = driver.current_url
             print(f"URL courante: {current_url}")
 
@@ -59,7 +76,8 @@ class RaceDataScraper:
                 race_code = match.group(1)
                 race_name = self.race_names.get(race_code, "Course inconnue")
                 print(f"Course trouvée: {race_name} ({race_code})")
-                return race_name
+                # Normaliser le nom de la course
+                return self.normalize_string(race_name)
             else:
                 # Si pas de raceId dans l'URL, on peut essayer de déduire la course
                 # depuis les informations de la page
@@ -67,7 +85,8 @@ class RaceDataScraper:
                     race_info = driver.find_element(By.CLASS_NAME, "mui-oah8u0").text
                     for code, name in self.race_names.items():
                         if name.lower() in race_info.lower():
-                            return name
+                            # Normaliser le nom de la course
+                            return self.normalize_string(name)
                 except:
                     pass
                 print("Code course non trouvé dans l'URL")
@@ -684,6 +703,100 @@ class RaceTrackerApp:
         self.create_widgets()
         self.load_cached_data()
 
+    def delete_selected_runners(self):
+        """Supprimer les coureurs sélectionnés du tableau et du JSON"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning(
+                "Attention",
+                "Veuillez sélectionner au moins un coureur à supprimer."
+            )
+            return
+
+        # Demander confirmation
+        runners_count = len(selection)
+        if runners_count == 1:
+            message = "Êtes-vous sûr de vouloir supprimer ce coureur ?"
+        else:
+            message = f"Êtes-vous sûr de vouloir supprimer ces {runners_count} coureurs ?"
+
+        if not messagebox.askyesno("Confirmation", message):
+            return
+
+        bibs_to_delete = []
+        deleted_count = 0
+
+        try:
+            # Récupérer les dossards des coureurs sélectionnés
+            for item in selection:
+                values = self.tree.item(item)['values']
+                if values:
+                    bib = str(values[1])  # L'index 1 correspond à la colonne du dossard
+                    bibs_to_delete.append(bib)
+
+            # Supprimer les coureurs du JSON
+            for bib in bibs_to_delete:
+                if bib in self.scraper.all_data:
+                    del self.scraper.all_data[bib]
+                    deleted_count += 1
+
+            # Sauvegarder les modifications dans le fichier JSON
+            self.scraper.save_data()
+
+            # Supprimer les coureurs du tableau
+            for item in selection:
+                self.tree.delete(item)
+
+            # Mettre à jour les filtres
+            self.update_filters()
+
+            # Mise à jour des données initiales pour les filtres
+            self.load_initial_data()
+
+            # Message de confirmation
+            if deleted_count == 1:
+                message = "Le coureur a été supprimé avec succès."
+            else:
+                message = f"{deleted_count} coureurs ont été supprimés avec succès."
+
+            messagebox.showinfo("Succès", message)
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erreur",
+                f"Une erreur est survenue lors de la suppression : {str(e)}"
+            )
+            print(f"Erreur lors de la suppression : {str(e)}")
+            traceback.print_exc()
+
+    def tree_setup(self):
+        """Configuration du TreeView pour la sélection multiple"""
+        self.tree.configure(selectmode='extended')  # Permet la sélection multiple
+
+        # Ajouter un menu contextuel
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(
+            label="Supprimer le(s) coureur(s) sélectionné(s)",
+            command=self.delete_selected_runners
+        )
+
+        # Lier le menu contextuel au clic droit
+        self.tree.bind('<Button-3>', self.show_context_menu)
+
+    def show_context_menu(self, event):
+        """Afficher le menu contextuel au clic droit"""
+        try:
+            # Sélectionner l'item sous le curseur s'il n'est pas déjà sélectionné
+            item = self.tree.identify_row(event.y)
+            if item and item not in self.tree.selection():
+                self.tree.selection_set(item)
+
+            # Afficher le menu uniquement si des items sont sélectionnés
+            if self.tree.selection():
+                self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+
     def create_export_button(self):
         """Créer le bouton d'export avec une image"""
         export_frame = ctk.CTkFrame(self.input_frame)  # Maintenant self.input_frame existe
@@ -1013,43 +1126,145 @@ class RaceTrackerApp:
         """Créer le HTML pour le tableau principal avec tri et liens vers les détails"""
         html = """
         <!DOCTYPE html>
-        <html>
+        <html lang="fr">
         <head>
             <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Tableau des coureurs</title>
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
             <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
             <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
             <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css">
             <script type="text/javascript" src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
             <script type="text/javascript" src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
             <style>
-                .runner-link {
-                    text-decoration: none;
-                    color: inherit;
+                :root {
+                    --primary-color: #2c3e50;
+                    --secondary-color: #34495e;
+                    --accent-color: #3498db;
+                    --light-bg: #f8f9fa;
                 }
+
+                body {
+                    background-color: #f5f6fa;
+                    color: var(--primary-color);
+                }
+
+                .header-section {
+                    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                    color: white;
+                    padding: 2rem 0;
+                    margin-bottom: 2rem;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                }
+
+                .content-section {
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1.5rem;
+                    margin-bottom: 1.5rem;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                }
+
+                .action-button {
+                    background-color: var(--accent-color);
+                    color: white;
+                    border: none;
+                    padding: 0.5rem 1rem;
+                    border-radius: 6px;
+                    text-decoration: none;
+                    transition: all 0.2s ease;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+
+                .action-button:hover {
+                    background-color: #2980b9;
+                    color: white;
+                    transform: translateY(-2px);
+                }
+
+                .action-button i {
+                    margin-right: 0.5rem;
+                }
+
+                .runner-link {
+                    color: var(--accent-color);
+                    text-decoration: none;
+                    font-weight: 500;
+                    transition: color 0.2s ease;
+                }
+
                 .runner-link:hover {
+                    color: #2980b9;
                     text-decoration: underline;
-                    color: #0056b3;
+                }
+
+                .dataTables_wrapper {
+                    padding: 1rem;
+                }
+
+                .table {
+                    margin-top: 1rem;
+                }
+
+                .table thead th {
+                    background-color: var(--light-bg);
+                    color: var(--primary-color);
+                    font-weight: 600;
+                }
+
+                .table tbody tr:hover {
+                    background-color: rgba(52, 152, 219, 0.05);
+                }
+
+                .dataTables_info, .dataTables_paginate {
+                    margin-top: 1rem;
+                }
+
+                .page-item.active .page-link {
+                    background-color: var(--accent-color);
+                    border-color: var(--accent-color);
+                }
+
+                .info-text {
+                    color: var(--secondary-color);
+                    font-style: italic;
+                }
+
+                .nav-actions {
+                    display: flex;
+                    gap: 1rem;
+                    margin: 1rem 0;
                 }
             </style>
         </head>
         <body>
-            <div class="container-fluid mt-3">
-                <div class="row mb-3">
-                    <div class="col">
-                        <h3>Tableau des coureurs</h3>
-                        <p class="text-muted">Cliquez sur un dossard pour voir les détails du coureur</p>
+            <div class="header-section">
+                <div class="container">
+                    <div class="row align-items-center">
+                        <div class="col">
+                            <h1 class="mb-0">Tableau des coureurs</h1>
+                            <p class="mb-0 text-light info-text">Cliquez sur un dossard pour voir les détails du coureur</p>
+                        </div>
                     </div>
                 </div>
-                <div class="row mb-3">
-                    <div class="col">
-                        <a href="analyses/index.html" class="btn btn-primary">Voir les Analyses TOP →</a>
-                    </div>
+            </div>
+
+            <div class="container">
+                <div class="nav-actions">
+                    <a href="analyses/index.html" class="action-button">
+                        <i class="fas fa-chart-line"></i>
+                        Voir les Classements TOP
+                    </a>
                 </div>
-                <table id="mainTable" class="table table-striped table-bordered">
-                    <thead>
-                        <tr>
+
+                <div class="content-section">
+                    <table id="mainTable" class="table table-striped table-bordered">
+                        <thead>
+                            <tr>
         """
 
         # Ajouter les en-têtes de colonnes
@@ -1059,9 +1274,9 @@ class RaceTrackerApp:
             html += f"<th>{col}</th>"
 
         html += """
-                        </tr>
-                    </thead>
-                    <tbody>
+                            </tr>
+                        </thead>
+                        <tbody>
         """
 
         # Ajouter les données avec liens vers les détails des coureurs
@@ -1076,28 +1291,51 @@ class RaceTrackerApp:
                         html += f"<td>{value}</td>"
                 html += "</tr>"
 
+        # Correction de l'indentation et utilisation d'une seule chaîne multiligne
         html += """
-                    </tbody>
-                </table>
-            </div>
-            <script>
-                $(document).ready(function() {
-                    $('#mainTable').DataTable({
-                        "pageLength": 50,
-                        "language": {
-                            "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
-                        },
-                        "order": [[1, "asc"]]
-                    });
-                });
-            </script>
-        </body>
-        </html>
-        """
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <script>
+                    $(document).ready(function() {
+                        function cleanElevationValue(value) {
+                            return parseInt(value.replace(/[^\\d]/g, '')) || 0;
+                        }
+
+                        $('#mainTable').DataTable({
+                            "pageLength": 50,
+                            "language": {
+                                "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/French.json"
+                            },
+                            "order": [[1, "asc"]],
+                            "dom": '<"top"f>rt<"bottom"lip>',
+                            "columnDefs": [
+                                {
+                                    "targets": [11, 12],
+                                    "type": "num",
+                                    "render": function(data, type, row) {
+                                        if (type === 'display') {
+                                            return data;
+                                        }
+                                        return cleanElevationValue(data);
+                                    }
+                                }
+                            ],
+                            "initComplete": function(settings, json) {
+                                $('.dataTables_filter input').addClass('form-control');
+                                $('.dataTables_length select').addClass('form-select');
+                            }
+                        });
+            });
+        </script>
+    </body>
+    </html>"""
         return html
 
     def create_runner_table_html(self, bib, timestamp):
-        """Créer le HTML pour le tableau détaillé d'un coureur avec lien retour"""
+        """Créer le HTML pour le tableau détaillé d'un coureur avec design moderne"""
         if bib not in self.scraper.all_data:
             return None
 
@@ -1106,72 +1344,239 @@ class RaceTrackerApp:
 
         html = f"""
         <!DOCTYPE html>
-        <html>
+        <html lang="fr">
         <head>
             <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Détails coureur {bib}</title>
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
             <style>
-                .positive-evolution {{ color: #28a745; }}
-                .negative-evolution {{ color: #dc3545; }}
-                .neutral-evolution {{ color: #6c757d; }}
+                :root {{
+                    --primary-color: #2c3e50;
+                    --secondary-color: #34495e;
+                    --accent-color: #3498db;
+                    --light-bg: #f8f9fa;
+                    --success-color: #28a745;
+                    --danger-color: #dc3545;
+                    --warning-color: #ffc107;
+                }}
+
+                body {{
+                    background-color: #f5f6fa;
+                    color: var(--primary-color);
+                }}
+
+                .header-section {{
+                    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                    color: white;
+                    padding: 2rem 0;
+                    margin-bottom: 2rem;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                }}
+
+                .info-card {{
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1.5rem;
+                    margin-bottom: 1.5rem;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                }}
+
+                .runner-info-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                    gap: 1rem;
+                }}
+
+                .info-item {{
+                    padding: 1rem;
+                    border-radius: 8px;
+                    background-color: var(--light-bg);
+                }}
+
+                .info-label {{
+                    font-weight: 600;
+                    color: var(--secondary-color);
+                    margin-bottom: 0.5rem;
+                    font-size: 0.9rem;
+                }}
+
+                .info-value {{
+                    font-size: 1.1rem;
+                    color: var(--primary-color);
+                }}
+
+                .back-button {{
+                    background-color: white;
+                    color: var(--primary-color);
+                    border: none;
+                    padding: 0.5rem 1rem;
+                    border-radius: 6px;
+                    text-decoration: none;
+                    transition: background-color 0.2s ease;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    margin-bottom: 1rem;
+                }}
+
+                .back-button:hover {{
+                    background-color: var(--light-bg);
+                    color: var(--accent-color);
+                    text-decoration: none;
+                }}
+
+                .table {{
+                    margin-top: 1rem;
+                    background-color: white;
+                    border-radius: 8px;
+                    overflow: hidden;
+                }}
+
+                .table thead th {{
+                    background-color: var(--light-bg);
+                    color: var(--primary-color);
+                    font-weight: 600;
+                    white-space: nowrap;
+                }}
+
+                .table tbody tr:hover {{
+                    background-color: rgba(52, 152, 219, 0.05);
+                }}
+
+                .section-title {{
+                    color: var(--primary-color);
+                    font-weight: 600;
+                    margin-bottom: 1.2rem;
+                    padding-bottom: 0.5rem;
+                    border-bottom: 2px solid var(--accent-color);
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }}
+
+                .positive-evolution {{ 
+                    color: var(--success-color);
+                    font-weight: 500;
+                }}
+
+                .negative-evolution {{ 
+                    color: var(--danger-color);
+                    font-weight: 500;
+                }}
+
+                .neutral-evolution {{
+                    color: var(--secondary-color);
+                    font-weight: 500;
+                }}
+
+                .status-badge {{
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 50px;
+                    font-weight: 500;
+                    font-size: 0.9rem;
+                    text-align: center;
+                }}
+
+                .status-finisher {{
+                    background-color: #d4edda;
+                    color: #155724;
+                }}
+
+                .status-running {{
+                    background-color: #cce5ff;
+                    color: #004085;
+                }}
+
+                .status-dnf {{
+                    background-color: #f8d7da;
+                    color: #721c24;
+                }}
+
+                .status-dns {{
+                    background-color: #e2e3e5;
+                    color: #383d41;
+                }}
             </style>
         </head>
         <body>
-            <div class="container-fluid mt-3">
-                <div class="row mb-3">
-                    <div class="col">
-                        <a href="../index.html" class="btn btn-secondary mb-3">← Retour au tableau principal</a>
-                        <h3>Détails du coureur {bib}</h3>
+            <div class="header-section">
+                <div class="container">
+                    <div class="row align-items-center">
+                        <div class="col">
+                            <h2 class="mb-0">
+                                <i class="fas fa-user-runner"></i>
+                                Coureur {bib} - {runner_data['infos']['name']}
+                            </h2>
+                        </div>
                     </div>
                 </div>
-                <div class="row mb-4">
-                    <div class="col">
-                        <h4>Informations coureur</h4>
-                        <table class="table table-bordered">
-                            <tr>
-                                <th class="bg-light" style="width: 25%">Course</th>
-                                <td style="width: 25%">{runner_data['infos']['race_name']}</td>
-                                <th class="bg-light" style="width: 25%">Dossard</th>
-                                <td style="width: 25%">{bib}</td>
-                            </tr>
-                            <tr>
-                                <th class="bg-light">Nom</th>
-                                <td>{runner_data['infos']['name']}</td>
-                                <th class="bg-light">Catégorie</th>
-                                <td>{runner_data['infos']['category']}</td>
-                            </tr>
-                            <tr>
-                                <th class="bg-light">État</th>
-                                <td>{runner_data['infos']['state']}</td>
-                                <th class="bg-light">Temps</th>
-                                <td>{runner_data['infos']['finish_time']}</td>
-                            </tr>
-                            <tr>
-                                <th class="bg-light">Class. Général</th>
-                                <td>{runner_data['infos']['overall_rank']}</td>
-                                <th class="bg-light">Class. Sexe</th>
-                                <td>{runner_data['infos']['gender_rank']}</td>
-                            </tr>
-                            <tr>
-                                <th class="bg-light">D+ Total</th>
-                                <td>{runner_data['infos']['total_elevation_gain']}m</td>
-                                <th class="bg-light">D- Total</th>
-                                <td>{runner_data['infos']['total_elevation_loss']}m</td>
-                            </tr>
-                        </table>
+            </div>
+
+            <div class="container">
+                <a href="../index.html" class="back-button">
+                    <i class="fas fa-arrow-left"></i> 
+                    Retour au tableau des coureurs
+                </a>
+
+                <div class="info-card">
+                    <h3 class="section-title">
+                        <i class="fas fa-info-circle"></i>
+                        Informations coureur
+                    </h3>
+                    <div class="runner-info-grid">
+                        <div class="info-item">
+                            <div class="info-label">Course</div>
+                            <div class="info-value">{runner_data['infos']['race_name']}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Catégorie</div>
+                            <div class="info-value">{runner_data['infos']['category']}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">État</div>
+                            <div class="info-value">
+                                <span class="status-badge {self.get_status_class(runner_data['infos']['state'])}">
+                                    {runner_data['infos']['state']}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Temps</div>
+                            <div class="info-value">{runner_data['infos']['finish_time']}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Classement Général</div>
+                            <div class="info-value">{runner_data['infos']['overall_rank']}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Classement Sexe</div>
+                            <div class="info-value">{runner_data['infos']['gender_rank']}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Classement Catégorie</div>
+                            <div class="info-value">{runner_data['infos']['category_rank']}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Dénivelé total</div>
+                            <div class="info-value">D+ {runner_data['infos']['total_elevation_gain']}m / D- {runner_data['infos']['total_elevation_loss']}m</div>
+                        </div>
                     </div>
                 </div>
         """
 
-        # Checkpoints section
+        # Section des points de passage
         if 'checkpoints' in runner_data and runner_data['checkpoints']:
             html += """
-                <div class="row">
-                    <div class="col">
-                        <h4>Points de passage</h4>
-                        <table class="table table-striped table-bordered">
-                            <thead class="table-light">
+                <div class="info-card">
+                    <h3 class="section-title">
+                        <i class="fas fa-flag-checkered"></i>
+                        Points de passage
+                    </h3>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
                                 <tr>
                                     <th>Point</th>
                                     <th>KM</th>
@@ -1189,35 +1594,33 @@ class RaceTrackerApp:
             """
 
             for cp in runner_data['checkpoints']:
-                # Traitement de l'évolution du classement
                 evolution = cp.get('rank_evolution')
                 if evolution is not None:
                     if evolution > 0:
-                        evolution_text = f'<span class="positive-evolution">+{evolution}</span>'
+                        evolution_class = "positive-evolution"
+                        evolution_text = f'+{evolution}'
                     elif evolution < 0:
-                        evolution_text = f'<span class="negative-evolution">{evolution}</span>'
+                        evolution_class = "negative-evolution"
+                        evolution_text = f'{evolution}'
                     else:
-                        evolution_text = f'<span class="neutral-evolution">{evolution}</span>'
+                        evolution_class = "neutral-evolution"
+                        evolution_text = f'{evolution}'
                 else:
-                    evolution_text = '-'
-
-                # Formatage des valeurs
-                kilometer = f"{cp.get('kilometer', 0):.1f}" if cp.get('kilometer') is not None else "-"
-                elevation_gain = f"{cp.get('elevation_gain', 0)}m" if cp.get('elevation_gain') is not None else "-"
-                elevation_loss = f"{cp.get('elevation_loss', 0)}m" if cp.get('elevation_loss') is not None else "-"
+                    evolution_class = "neutral-evolution"
+                    evolution_text = "-"
 
                 html += f"""
                     <tr>
                         <td>{cp.get('point', '-')}</td>
-                        <td>{kilometer}</td>
+                        <td>{cp.get('kilometer', 0):.1f}</td>
                         <td>{cp.get('passage_time', '-')}</td>
                         <td>{cp.get('race_time', '-')}</td>
                         <td>{cp.get('speed', '-')}</td>
                         <td>{cp.get('effort_speed', '-')}</td>
-                        <td>{elevation_gain}</td>
-                        <td>{elevation_loss}</td>
+                        <td>{cp.get('elevation_gain', 0)}m</td>
+                        <td>{cp.get('elevation_loss', 0)}m</td>
                         <td>{cp.get('rank', '-')}</td>
-                        <td>{evolution_text}</td>
+                        <td class="{evolution_class}">{evolution_text}</td>
                     </tr>
                 """
 
@@ -1229,23 +1632,34 @@ class RaceTrackerApp:
             """
         else:
             html += """
-                <div class="row">
-                    <div class="col">
-                        <div class="alert alert-info" role="alert">
-                            Aucun point de passage disponible pour ce coureur.
-                        </div>
+                <div class="info-card">
+                    <div class="alert alert-info" role="alert">
+                        <i class="fas fa-info-circle"></i>
+                        Aucun point de passage disponible pour ce coureur.
                     </div>
                 </div>
             """
 
-        # Fermeture des balises
         html += """
-                </div>
-            </body>
-            </html>
+            </div>
+        </body>
+        </html>
         """
 
         return html
+
+    def get_status_class(self, status):
+        """Retourne la classe CSS appropriée pour le statut du coureur"""
+        status = status.lower()
+        if "finisher" in status:
+            return "status-finisher"
+        elif "en course" in status:
+            return "status-running"
+        elif "abandon" in status:
+            return "status-dnf"
+        elif "non partant" in status:
+            return "status-dns"
+        return ""
 
     def create_widgets(self):
         self.main_frame = ctk.CTkFrame(self.root)
@@ -1254,6 +1668,17 @@ class RaceTrackerApp:
         # Frame de saisie
         self.input_frame = ctk.CTkFrame(self.main_frame)
         self.input_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        # Ajouter le bouton de suppression
+        self.delete_button = ctk.CTkButton(
+            self.input_frame,
+            text="Supprimer le(s) coureur(s) sélectionné(s)",
+            text_color="white",
+            fg_color="#dc3545",  # Rouge pour indiquer une action destructive
+            hover_color="#bb2d3b",
+            command=self.delete_selected_runners
+        )
+        self.delete_button.pack(side=tk.LEFT, padx=5)
 
         ctk.CTkLabel(self.input_frame, text="Numéros de dossard (séparés par des virgules):").pack(side=tk.LEFT, padx=5)
         self.bib_entry = ctk.CTkEntry(self.input_frame, width=400)
@@ -1907,69 +2332,240 @@ class TopAnalysisWindow:
         self.descenders_scroll.pack(fill=tk.BOTH, expand=True)
 
     def create_analyses_index_html(self, courses):
+        """Créer la page HTML d'index des analyses"""
         html = """
         <!DOCTYPE html>
-        <html>
+        <html lang="fr">
         <head>
             <meta charset="UTF-8">
-            <title>Analyses TOP</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Classement des Coureurs</title>
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
             <style>
-                .category-section {
+                :root {
+                    --primary-color: #2c3e50;
+                    --secondary-color: #34495e;
+                    --accent-color: #3498db;
+                    --light-bg: #f8f9fa;
+                }
+
+                body {
+                    background-color: #f5f6fa;
+                    color: var(--primary-color);
+                }
+
+                .header-section {
+                    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                    color: white;
+                    padding: 2rem 0;
                     margin-bottom: 2rem;
-                    padding: 1rem;
-                    background-color: #f8f9fa;
-                    border-radius: 8px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                }
+
+                .analysis-section {
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1.5rem;
+                    margin-bottom: 1.5rem;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                    transition: transform 0.3s ease, box-shadow 0.3s ease;
+                }
+
+                .analysis-section:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                }
+
+                .section-title {
+                    color: var(--primary-color);
+                    font-weight: 600;
+                    margin-bottom: 1.2rem;
+                    padding-bottom: 0.5rem;
+                    border-bottom: 2px solid var(--accent-color);
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+
+                .analysis-links {
+                    list-style: none;
+                    padding-left: 0;
+                }
+
+                .analysis-links li {
+                    margin-bottom: 0.8rem;
+                }
+
+                .analysis-links a {
+                    color: var(--secondary-color);
+                    text-decoration: none;
+                    display: flex;
+                    align-items: center;
+                    padding: 0.5rem;
+                    border-radius: 6px;
+                    transition: background-color 0.2s ease;
+                }
+
+                .analysis-links a:hover {
+                    background-color: var(--light-bg);
+                    color: var(--accent-color);
+                }
+
+                .analysis-links a i {
+                    margin-right: 0.5rem;
+                    color: var(--accent-color);
+                }
+
+                #courseSelect {
+                    background-color: white;
+                    border: 2px solid var(--accent-color);
+                    border-radius: 6px;
+                    padding: 0.5rem;
+                    width: auto;
+                    min-width: 200px;
+                }
+
+                .back-button {
+                    background-color: white;
+                    color: var(--primary-color);
+                    border: none;
+                    padding: 0.5rem 1rem;
+                    border-radius: 6px;
+                    text-decoration: none;
+                    transition: background-color 0.2s ease;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+
+                .back-button:hover {
+                    background-color: var(--light-bg);
+                    color: var(--accent-color);
                 }
             </style>
         </head>
         <body>
-            <div class="container py-5">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h1>Analyses TOP</h1>
-                    <select id="courseSelect" class="form-select" style="width: auto;">
+            <div class="header-section">
+                <div class="container">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h1 class="mb-0">Classement des Coureurs</h1>
+                        </div>
+                        <div class="col-md-6 text-md-end">
+                            <select id="courseSelect" class="form-select d-inline-block">
         """
-
         # Ajouter les options de course
         for course in courses:
             html += f'<option value="{course}">{course}</option>'
 
         html += """
-                    </select>
+                            </select>
+                        </div>
+                    </div>
                 </div>
-                <div class="mb-4">
-                    <a href="../index.html" class="btn btn-secondary">← Retour au tableau des coureurs</a>
-                </div>
+            </div>
 
+            <div class="container mb-4">
+                <a href="../index.html" class="back-button">
+                    <i class="fas fa-arrow-left"></i> Retour au tableau des coureurs
+                </a>
+            </div>
+
+            <div class="container">
                 <div class="row">
-                    <div class="col-md-4">
-                        <div class="category-section">
-                            <h3>Progression</h3>
-                            <ul class="analysis-links"></ul>
-                        </div>
-                    </div>
-
-                    <div class="col-md-4">
-                        <div class="category-section">
-                            <h3>Dénivelés</h3>
-                            <ul class="analysis-links"></ul>
-                        </div>
-                    </div>
-
-                    <div class="col-md-4">
-                        <div class="category-section">
-                            <h3>Vitesses</h3>
-                            <ul class="analysis-links"></ul>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="row mt-4">
-                    <div class="col-12">
-                        <div class="category-section">
-                            <h3>Sections</h3>
+                    <!-- TOP Progression -->
+                    <div class="col-md-6 col-lg-3">
+                        <div class="analysis-section">
+                            <h3 class="section-title">
+                                <i class="fas fa-chart-line"></i>
+                                TOP - Progression au Classement
+                            </h3>
                             <ul class="analysis-links">
-                                <li><a href="analyse_sections.html">Analyse par sections</a></li>
+                                <li>
+                                    <a href="progression_globale.html">
+                                        <i class="fas fa-arrow-trend-up"></i>
+                                        Progression globale
+                                    </a>
+                                </li>
+                                <li>
+                                    <a href="progression_sections.html">
+                                        <i class="fas fa-route"></i>
+                                        Progression entre 2 sections
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- TOP D+ et D- -->
+                    <div class="col-md-6 col-lg-3">
+                        <div class="analysis-section">
+                            <h3 class="section-title">
+                                <i class="fas fa-mountain"></i>
+                                TOP - D+ et D-
+                            </h3>
+                            <ul class="analysis-links">
+                                <li>
+                                    <a href="grimpeurs.html">
+                                        <i class="fas fa-angle-up"></i>
+                                        Top Grimpeurs
+                                    </a>
+                                </li>
+                                <li>
+                                    <a href="descendeurs.html">
+                                        <i class="fas fa-angle-down"></i>
+                                        Top Descendeurs
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- TOP Vitesses -->
+                    <div class="col-md-6 col-lg-3">
+                        <div class="analysis-section">
+                            <h3 class="section-title">
+                                <i class="fas fa-gauge-high"></i>
+                                TOP Vitesses
+                            </h3>
+                            <ul class="analysis-links">
+                                <li>
+                                    <a href="vitesse_moyenne.html">
+                                        <i class="fas fa-tachometer-alt"></i>
+                                        Vitesse moyenne
+                                    </a>
+                                </li>
+                                <li>
+                                    <a href="vitesse_effort.html">
+                                        <i class="fas fa-fire"></i>
+                                        Vitesse effort
+                                    </a>
+                                </li>
+                                <li>
+                                    <a href="vitesse_sections.html">
+                                        <i class="fas fa-flag-checkered"></i>
+                                        Vitesse par section
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- TOP par sections -->
+                    <div class="col-md-6 col-lg-3">
+                        <div class="analysis-section">
+                            <h3 class="section-title">
+                                <i class="fas fa-map-marked-alt"></i>
+                                TOP par sections
+                            </h3>
+                            <ul class="analysis-links">
+                                <li>
+                                    <a href="analyse_sections.html">
+                                        <i class="fas fa-map-signs"></i>
+                                        Analyse par section
+                                    </a>
+                                </li>
                             </ul>
                         </div>
                     </div>
@@ -1977,49 +2573,166 @@ class TopAnalysisWindow:
             </div>
 
             <script>
-            document.getElementById('courseSelect').addEventListener('change', function() {
-                const course = this.value;
-                const suffix = course === 'Toutes les courses' ? '' : '_' + course.toLowerCase().replace(/ /g, '_');
-                updateLinks(suffix);
-            });
-
-            function updateLinks(suffix) {
-                const links = {
-                    'Progression': {
-                        'Progression globale': `progression_globale${suffix}.html`,
-                        'Progression entre points': `progression_sections${suffix}.html`
-                    },
-                    'Dénivelés': {
-                        'Top Grimpeurs': `grimpeurs${suffix}.html`,
-                        'Top Descendeurs': `descendeurs${suffix}.html`
-                    },
-                    'Vitesses': {
-                        'Vitesse moyenne': `vitesse_moyenne${suffix}.html`,
-                        'Vitesse effort': `vitesse_effort${suffix}.html`,
-                        'Vitesse par section': `vitesse_sections${suffix}.html`
-                    }
-                };
-
-                document.querySelectorAll('.category-section').forEach(section => {
-                    const title = section.querySelector('h3').textContent;
-                    if (title in links) {  // Ne mettre à jour que les sections avec des liens dynamiques
-                        const ul = section.querySelector('ul');
-                        ul.innerHTML = '';
-
-                        Object.entries(links[title]).forEach(([name, url]) => {
-                            ul.innerHTML += `<li><a href="${url}">${name}</a></li>`;
-                        });
-                    }
+                document.getElementById('courseSelect').addEventListener('change', function() {
+                    const course = this.value;
+                    const suffix = course === 'Toutes les courses' ? '' : '_' + course.toLowerCase().replace(/ /g, '_');
+                    updateLinks(suffix);
                 });
-            }
 
-            // Initialize links
-            updateLinks('');
+                function updateLinks(suffix) {
+                    const links = {
+                        'TOP - Progression au Classement': {
+                            'Progression globale': `progression_globale${suffix}.html`,
+                            'Progression entre 2 sections': `progression_sections${suffix}.html`
+                        },
+                        'TOP - D+ et D-': {
+                            'Top Grimpeurs': `grimpeurs${suffix}.html`,
+                            'Top Descendeurs': `descendeurs${suffix}.html`
+                        },
+                        'TOP Vitesses': {
+                            'Vitesse moyenne': `vitesse_moyenne${suffix}.html`,
+                            'Vitesse effort': `vitesse_effort${suffix}.html`,
+                            'Vitesse par section': `vitesse_sections${suffix}.html`
+                        }
+                    };
+
+                    document.querySelectorAll('.analysis-section').forEach(section => {
+                        const title = section.querySelector('.section-title').textContent.trim();
+                        if (title in links) {  // Ne mettre à jour que les sections avec des liens dynamiques
+                            const ul = section.querySelector('ul');
+                            Array.from(ul.children).forEach(li => {
+                                const a = li.querySelector('a');
+                                const linkText = a.textContent.trim();
+                                if (links[title][linkText]) {
+                                    a.href = links[title][linkText];
+                                }
+                            });
+                        }
+                    });
+                }
+
+                // Initialize links
+                updateLinks('');
             </script>
         </body>
         </html>
         """
         return html
+
+    # def create_analyses_index_html(self, courses):
+    #     html = """
+    #     <!DOCTYPE html>
+    #     <html>
+    #     <head>
+    #         <meta charset="UTF-8">
+    #         <title>Analyses TOP</title>
+    #         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    #         <style>
+    #             .category-section {
+    #                 margin-bottom: 2rem;
+    #                 padding: 1rem;
+    #                 background-color: #f8f9fa;
+    #                 border-radius: 8px;
+    #             }
+    #         </style>
+    #     </head>
+    #     <body>
+    #         <div class="container py-5">
+    #             <div class="d-flex justify-content-between align-items-center mb-4">
+    #                 <h1>Analyses TOP</h1>
+    #                 <select id="courseSelect" class="form-select" style="width: auto;">
+    #     """
+    #
+    #     # Ajouter les options de course
+    #     for course in courses:
+    #         html += f'<option value="{course}">{course}</option>'
+    #
+    #     html += """
+    #                 </select>
+    #             </div>
+    #             <div class="mb-4">
+    #                 <a href="../index.html" class="btn btn-secondary">← Retour au tableau des coureurs</a>
+    #             </div>
+    #
+    #             <div class="row">
+    #                 <div class="col-md-4">
+    #                     <div class="category-section">
+    #                         <h3>Progression</h3>
+    #                         <ul class="analysis-links"></ul>
+    #                     </div>
+    #                 </div>
+    #
+    #                 <div class="col-md-4">
+    #                     <div class="category-section">
+    #                         <h3>Dénivelés</h3>
+    #                         <ul class="analysis-links"></ul>
+    #                     </div>
+    #                 </div>
+    #
+    #                 <div class="col-md-4">
+    #                     <div class="category-section">
+    #                         <h3>Vitesses</h3>
+    #                         <ul class="analysis-links"></ul>
+    #                     </div>
+    #                 </div>
+    #             </div>
+    #
+    #             <div class="row mt-4">
+    #                 <div class="col-12">
+    #                     <div class="category-section">
+    #                         <h3>Sections</h3>
+    #                         <ul class="analysis-links">
+    #                             <li><a href="analyse_sections.html">Analyse par sections</a></li>
+    #                         </ul>
+    #                     </div>
+    #                 </div>
+    #             </div>
+    #         </div>
+    #
+    #         <script>
+    #         document.getElementById('courseSelect').addEventListener('change', function() {
+    #             const course = this.value;
+    #             const suffix = course === 'Toutes les courses' ? '' : '_' + course.toLowerCase().replace(/ /g, '_');
+    #             updateLinks(suffix);
+    #         });
+    #
+    #         function updateLinks(suffix) {
+    #             const links = {
+    #                 'Progression': {
+    #                     'Progression globale': `progression_globale${suffix}.html`,
+    #                     'Progression entre points': `progression_sections${suffix}.html`
+    #                 },
+    #                 'Dénivelés': {
+    #                     'Top Grimpeurs': `grimpeurs${suffix}.html`,
+    #                     'Top Descendeurs': `descendeurs${suffix}.html`
+    #                 },
+    #                 'Vitesses': {
+    #                     'Vitesse moyenne': `vitesse_moyenne${suffix}.html`,
+    #                     'Vitesse effort': `vitesse_effort${suffix}.html`,
+    #                     'Vitesse par section': `vitesse_sections${suffix}.html`
+    #                 }
+    #             };
+    #
+    #             document.querySelectorAll('.category-section').forEach(section => {
+    #                 const title = section.querySelector('h3').textContent;
+    #                 if (title in links) {  // Ne mettre à jour que les sections avec des liens dynamiques
+    #                     const ul = section.querySelector('ul');
+    #                     ul.innerHTML = '';
+    #
+    #                     Object.entries(links[title]).forEach(([name, url]) => {
+    #                         ul.innerHTML += `<li><a href="${url}">${name}</a></li>`;
+    #                     });
+    #                 }
+    #             });
+    #         }
+    #
+    #         // Initialize links
+    #         updateLinks('');
+    #         </script>
+    #     </body>
+    #     </html>
+    #     """
+    #     return html
 
     def create_speed_subtabs(self):
         self.speed_tabs = ctk.CTkTabview(self.tab_speed)
