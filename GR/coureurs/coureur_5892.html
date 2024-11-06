@@ -1,0 +1,450 @@
+
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Détails coureur 5892</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+            <style>
+                :root {
+                    --primary-color: #2c3e50;
+                    --secondary-color: #34495e;
+                    --accent-color: #3498db;
+                    --light-bg: #f8f9fa;
+                    --success-color: #28a745;
+                    --danger-color: #dc3545;
+                    --warning-color: #ffc107;
+                }
+
+                body {
+                    background-color: #f5f6fa;
+                    color: var(--primary-color);
+                }
+
+                .header-section {
+                    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                    color: white;
+                    padding: 2rem 0;
+                    margin-bottom: 2rem;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                }
+
+                .info-card {
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1.5rem;
+                    margin-bottom: 1.5rem;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                }
+
+                .runner-info-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                    gap: 1rem;
+                }
+
+                .info-item {
+                    padding: 1rem;
+                    border-radius: 8px;
+                    background-color: var(--light-bg);
+                }
+
+                .info-label {
+                    font-weight: 600;
+                    color: var(--secondary-color);
+                    margin-bottom: 0.5rem;
+                    font-size: 0.9rem;
+                }
+
+                .info-value {
+                    font-size: 1.1rem;
+                    color: var(--primary-color);
+                }
+
+                .back-button {
+                    background-color: white;
+                    color: var(--primary-color);
+                    border: none;
+                    padding: 0.5rem 1rem;
+                    border-radius: 6px;
+                    text-decoration: none;
+                    transition: background-color 0.2s ease;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    margin-bottom: 1rem;
+                }
+
+                .back-button:hover {
+                    background-color: var(--light-bg);
+                    color: var(--accent-color);
+                    text-decoration: none;
+                }
+
+                .table {
+                    margin-top: 1rem;
+                    background-color: white;
+                    border-radius: 8px;
+                    overflow: hidden;
+                }
+
+                .table thead th {
+                    background-color: var(--light-bg);
+                    color: var(--primary-color);
+                    font-weight: 600;
+                    white-space: nowrap;
+                }
+
+                .table tbody tr:hover {
+                    background-color: rgba(52, 152, 219, 0.05);
+                }
+
+                .section-title {
+                    color: var(--primary-color);
+                    font-weight: 600;
+                    margin-bottom: 1.2rem;
+                    padding-bottom: 0.5rem;
+                    border-bottom: 2px solid var(--accent-color);
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+
+                .positive-evolution { 
+                    color: var(--success-color);
+                    font-weight: 500;
+                }
+
+                .negative-evolution { 
+                    color: var(--danger-color);
+                    font-weight: 500;
+                }
+
+                .neutral-evolution {
+                    color: var(--secondary-color);
+                    font-weight: 500;
+                }
+
+                .status-badge {
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 50px;
+                    font-weight: 500;
+                    font-size: 0.9rem;
+                    text-align: center;
+                }
+
+                .status-finisher {
+                    background-color: #d4edda;
+                    color: #155724;
+                }
+
+                .status-running {
+                    background-color: #cce5ff;
+                    color: #004085;
+                }
+
+                .status-dnf {
+                    background-color: #f8d7da;
+                    color: #721c24;
+                }
+
+                .status-dns {
+                    background-color: #e2e3e5;
+                    color: #383d41;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header-section">
+                <div class="container">
+                    <div class="row align-items-center">
+                        <div class="col">
+                            <h2 class="mb-0">
+                                <i class="fas fa-user-runner"></i>
+                                Coureur 5892 - Vincent GRANDSIRE
+                            </h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="container">
+                <a href="../index.html" class="back-button">
+                    <i class="fas fa-arrow-left"></i> 
+                    Retour au tableau des coureurs
+                </a>
+
+                <div class="info-card">
+                    <h3 class="section-title">
+                        <i class="fas fa-info-circle"></i>
+                        Informations coureur
+                    </h3>
+                    <div class="runner-info-grid">
+                        <div class="info-item">
+                            <div class="info-label">Course</div>
+                            <div class="info-value">Trail de Bourbon</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Catégorie</div>
+                            <div class="info-value">M2 H</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">État</div>
+                            <div class="info-value">
+                                <span class="status-badge status-finisher">
+                                    Finisher
+                                </span>
+                            </div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Temps</div>
+                            <div class="info-value">38h25</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Classement Général</div>
+                            <div class="info-value">933</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Classement Sexe</div>
+                            <div class="info-value">716</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Classement Catégorie</div>
+                            <div class="info-value">92</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Dénivelé total</div>
+                            <div class="info-value">D+ 5835m / D- 7026m</div>
+                        </div>
+                    </div>
+                </div>
+        
+                <div class="info-card">
+                    <h3 class="section-title">
+                        <i class="fas fa-flag-checkered"></i>
+                        Points de passage
+                    </h3>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Point</th>
+                                    <th>KM</th>
+                                    <th>Heure passage</th>
+                                    <th>Temps course</th>
+                                    <th>Vitesse</th>
+                                    <th>Vitesse effort</th>
+                                    <th>D+</th>
+                                    <th>D-</th>
+                                    <th>Class.</th>
+                                    <th>Évolution</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            
+                    <tr>
+                        <td>Cilaos (Stade)</td>
+                        <td>0.0</td>
+                        <td>ven. 21:10</td>
+                        <td>0:00:00</td>
+                        <td>N/A</td>
+                        <td>N/A</td>
+                        <td>0m</td>
+                        <td>0m</td>
+                        <td>None</td>
+                        <td class="neutral-evolution">-</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Sentier Taïbit</td>
+                        <td>6.9</td>
+                        <td>ven. 22:06</td>
+                        <td>0:56:18</td>
+                        <td>7.4 km/h</td>
+                        <td>7.8 km/h</td>
+                        <td>38m</td>
+                        <td>16m</td>
+                        <td>1053</td>
+                        <td class="neutral-evolution">-</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Marla</td>
+                        <td>12.9</td>
+                        <td>sam. 00:35</td>
+                        <td>3:25:09</td>
+                        <td>2.4 km/h</td>
+                        <td>6.2 km/h</td>
+                        <td>928m</td>
+                        <td>578m</td>
+                        <td>1050</td>
+                        <td class="positive-evolution">+3</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Plaine des Merles</td>
+                        <td>19.5</td>
+                        <td>sam. 02:56</td>
+                        <td>5:46:46</td>
+                        <td>2.8 km/h</td>
+                        <td>4.8 km/h</td>
+                        <td>466m</td>
+                        <td>270m</td>
+                        <td>1068</td>
+                        <td class="negative-evolution">-18</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Sentier Scout</td>
+                        <td>21.6</td>
+                        <td>sam. 03:29</td>
+                        <td>6:19:58</td>
+                        <td>3.8 km/h</td>
+                        <td>4.2 km/h</td>
+                        <td>21m</td>
+                        <td>200m</td>
+                        <td>994</td>
+                        <td class="positive-evolution">+74</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Aurère</td>
+                        <td>30.4</td>
+                        <td>sam. 06:45</td>
+                        <td>9:35:16</td>
+                        <td>2.7 km/h</td>
+                        <td>3.7 km/h</td>
+                        <td>336m</td>
+                        <td>1051m</td>
+                        <td>1105</td>
+                        <td class="negative-evolution">-111</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Passerelle d'Oussy</td>
+                        <td>34.4</td>
+                        <td>sam. 08:13</td>
+                        <td>11:03:21</td>
+                        <td>2.7 km/h</td>
+                        <td>3.4 km/h</td>
+                        <td>94m</td>
+                        <td>638m</td>
+                        <td>1101</td>
+                        <td class="positive-evolution">+4</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Ilet des orangers</td>
+                        <td>40.0</td>
+                        <td>sam. 10:55</td>
+                        <td>13:45:33</td>
+                        <td>2.1 km/h</td>
+                        <td>5.1 km/h</td>
+                        <td>830m</td>
+                        <td>223m</td>
+                        <td>1075</td>
+                        <td class="positive-evolution">+26</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Piton des orangers</td>
+                        <td>48.0</td>
+                        <td>sam. 15:28</td>
+                        <td>18:18:51</td>
+                        <td>1.8 km/h</td>
+                        <td>4.4 km/h</td>
+                        <td>1207m</td>
+                        <td>234m</td>
+                        <td>1047</td>
+                        <td class="positive-evolution">+28</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Ilet Savannah</td>
+                        <td>65.0</td>
+                        <td>sam. 20:32</td>
+                        <td>23:22:33</td>
+                        <td>3.4 km/h</td>
+                        <td>3.4 km/h</td>
+                        <td>22m</td>
+                        <td>1846m</td>
+                        <td>1031</td>
+                        <td class="positive-evolution">+16</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Chemin Ratinaud</td>
+                        <td>72.1</td>
+                        <td>dim. 00:04</td>
+                        <td>26:54:48</td>
+                        <td>2 km/h</td>
+                        <td>3.7 km/h</td>
+                        <td>602m</td>
+                        <td>263m</td>
+                        <td>988</td>
+                        <td class="positive-evolution">+43</td>
+                    </tr>
+                
+                    <tr>
+                        <td>La possession</td>
+                        <td>80.7</td>
+                        <td>dim. 04:04</td>
+                        <td>30:54:41</td>
+                        <td>2.1 km/h</td>
+                        <td>2.6 km/h</td>
+                        <td>167m</td>
+                        <td>629m</td>
+                        <td>994</td>
+                        <td class="negative-evolution">-6</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Grande Chaloupe</td>
+                        <td>88.1</td>
+                        <td>dim. 06:23</td>
+                        <td>33:13:50</td>
+                        <td>3.2 km/h</td>
+                        <td>4.6 km/h</td>
+                        <td>323m</td>
+                        <td>316m</td>
+                        <td>951</td>
+                        <td class="positive-evolution">+43</td>
+                    </tr>
+                
+                    <tr>
+                        <td>Le Colorado</td>
+                        <td>96.9</td>
+                        <td>dim. 09:26</td>
+                        <td>36:16:15</td>
+                        <td>2.9 km/h</td>
+                        <td>5.5 km/h</td>
+                        <td>782m</td>
+                        <td>110m</td>
+                        <td>931</td>
+                        <td class="positive-evolution">+20</td>
+                    </tr>
+                
+                    <tr>
+                        <td>St Denis La Redoute</td>
+                        <td>101.2</td>
+                        <td>dim. 11:35</td>
+                        <td>38:25:05</td>
+                        <td>2 km/h</td>
+                        <td>2.1 km/h</td>
+                        <td>19m</td>
+                        <td>652m</td>
+                        <td>933</td>
+                        <td class="negative-evolution">-2</td>
+                    </tr>
+                
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            
+            </div>
+        </body>
+        </html>
+        
